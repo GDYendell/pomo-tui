@@ -7,17 +7,20 @@ use ratatui::{
     Frame,
 };
 
+use crate::digits::{render_time, render_wave, wave_position};
 use crate::panel::{KeyHandleResult, Panel, PanelId, Shortcut};
 use crate::timer::{SessionType, Timer, TimerState};
 
 pub struct TimerPanel {
     pub timer: Timer,
+    tick_count: u32,
 }
 
 impl Default for TimerPanel {
     fn default() -> Self {
         Self {
             timer: Timer::default(),
+            tick_count: 0,
         }
     }
 }
@@ -48,7 +51,7 @@ impl Panel for TimerPanel {
 
         // Split inner area: timer display at top, current task at bottom
         let chunks = Layout::vertical([
-            Constraint::Min(8),    // Timer display
+            Constraint::Min(10),   // Timer display (block digits need more space)
             Constraint::Length(3), // Current task (single task)
         ])
         .split(inner);
@@ -63,8 +66,21 @@ impl Panel for TimerPanel {
                 self.timer.toggle();
                 KeyHandleResult::Consumed
             }
-            KeyCode::Char('r') => {
+            KeyCode::Char('r') | KeyCode::Char('R') => {
                 self.timer.reset();
+                KeyHandleResult::Consumed
+            }
+            // Mode switching only when idle
+            KeyCode::Char('w') | KeyCode::Char('W') if self.timer.state == TimerState::Idle => {
+                self.timer.set_session_type(SessionType::Work);
+                KeyHandleResult::Consumed
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') if self.timer.state == TimerState::Idle => {
+                self.timer.set_session_type(SessionType::ShortBreak);
+                KeyHandleResult::Consumed
+            }
+            KeyCode::Char('l') | KeyCode::Char('L') if self.timer.state == TimerState::Idle => {
+                self.timer.set_session_type(SessionType::LongBreak);
                 KeyHandleResult::Consumed
             }
             _ => KeyHandleResult::Ignored,
@@ -72,39 +88,50 @@ impl Panel for TimerPanel {
     }
 
     fn shortcuts(&self) -> Vec<Shortcut> {
-        vec![
+        let mut shortcuts = vec![
             Shortcut {
                 key: "Space",
                 description: "Start/Pause",
             },
             Shortcut {
-                key: "r",
+                key: "R",
                 description: "Reset",
             },
-        ]
+        ];
+
+        // Show mode switching shortcuts only when idle
+        if self.timer.state == TimerState::Idle {
+            shortcuts.push(Shortcut {
+                key: "W/S/L",
+                description: "Mode",
+            });
+        }
+
+        shortcuts
     }
 
     fn tick(&mut self) {
         self.timer.tick();
+        self.tick_count = self.tick_count.wrapping_add(1);
     }
 }
 
 impl TimerPanel {
+    /// Update animation tick counter without ticking the timer
+    pub fn tick_animation(&mut self) {
+        self.tick_count = self.tick_count.wrapping_add(1);
+    }
+
     fn render_timer_display(&self, frame: &mut Frame, area: Rect) {
         let timer = &self.timer;
 
-        let time_str = format!("{:02}:{:02}", timer.minutes(), timer.seconds());
+        // Render block digits
+        let time_lines = render_time(timer.minutes(), timer.seconds());
 
         let session_str = match timer.session_type {
-            SessionType::Work => "WORK SESSION",
+            SessionType::Work => "WORK",
             SessionType::ShortBreak => "SHORT BREAK",
             SessionType::LongBreak => "LONG BREAK",
-        };
-
-        let state_str = match timer.state {
-            TimerState::Idle => "Press [Space] to start",
-            TimerState::Running => "Running...",
-            TimerState::Paused => "Paused",
         };
 
         let session_color = match timer.session_type {
@@ -113,20 +140,36 @@ impl TimerPanel {
             SessionType::LongBreak => Color::Blue,
         };
 
-        let content = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                time_str,
+        // Wave animation - only animate when running
+        let wave = if timer.state == TimerState::Running {
+            render_wave(Some(wave_position(self.tick_count)))
+        } else {
+            render_wave(None)
+        };
+
+        let mut content: Vec<Line> = vec![Line::from("")];
+
+        // Add block digit lines
+        for line in time_lines {
+            content.push(Line::from(Span::styled(
+                line,
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(Span::styled(session_str, Style::default().fg(session_color))),
-            Line::from(""),
-            Line::from(Span::styled(state_str, Style::default().fg(Color::DarkGray))),
-            Line::from(""),
-            Line::from(format!("Sessions completed: {}", timer.sessions_completed)),
-        ];
+            )));
+        }
+
+        content.push(Line::from(""));
+        content.push(Line::from(Span::styled(wave, Style::default().fg(session_color))));
+        content.push(Line::from(""));
+        content.push(Line::from(Span::styled(
+            session_str,
+            Style::default().fg(session_color),
+        )));
+        content.push(Line::from(format!(
+            "Sessions: {}",
+            timer.sessions_completed
+        )));
 
         let paragraph = Paragraph::new(content).alignment(Alignment::Center);
 

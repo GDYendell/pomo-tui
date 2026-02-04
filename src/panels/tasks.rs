@@ -40,11 +40,11 @@ impl Panel for TasksPanel {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Split into three sections: Backlog, Current, Completed
+        // Split into three equal sections: Backlog, Current, Completed
         let chunks = Layout::vertical([
-            Constraint::Percentage(40), // Backlog
-            Constraint::Percentage(30), // Current
-            Constraint::Percentage(30), // Completed
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
         ])
         .split(inner);
 
@@ -67,7 +67,9 @@ impl TasksPanel {
         let block = Block::default()
             .borders(Borders::BOTTOM)
             .border_style(Style::default().fg(Color::DarkGray))
-            .title(" Backlog ");
+            .title(" Backlog ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .title_alignment(Alignment::Right);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -83,7 +85,9 @@ impl TasksPanel {
         let block = Block::default()
             .borders(Borders::BOTTOM)
             .border_style(Style::default().fg(Color::DarkGray))
-            .title(" Current ");
+            .title(" Current ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .title_alignment(Alignment::Right);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -98,7 +102,9 @@ impl TasksPanel {
     fn render_completed_section(&self, frame: &mut Frame, area: Rect) {
         let block = Block::default()
             .borders(Borders::NONE)
-            .title(" Completed ");
+            .title(" Completed ")
+            .title_style(Style::default().fg(Color::DarkGray))
+            .title_alignment(Alignment::Right);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);

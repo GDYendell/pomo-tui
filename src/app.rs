@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::audio::AudioPlayer;
 use crate::panel::{Panel, PanelId};
 use crate::panels::{TasksPanel, TimerPanel};
 
@@ -38,6 +39,9 @@ pub struct App {
     pub panels: PanelManager,
     pub focused_panel: PanelId,
     pub tasks_visible: bool,
+    pub shortcuts_visible: bool,
+    pub two_columns: bool,
+    audio: Option<AudioPlayer>,
 }
 
 impl Default for App {
@@ -47,6 +51,9 @@ impl Default for App {
             panels: PanelManager::default(),
             focused_panel: PanelId::Timer,
             tasks_visible: true,
+            shortcuts_visible: true,
+            two_columns: false,
+            audio: AudioPlayer::new(),
         }
     }
 }
@@ -55,13 +62,18 @@ impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
         // Global shortcuts first
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
                 self.should_quit = true;
                 return;
             }
-            // T to toggle tasks panel visibility (always active)
+            // T to toggle tasks panel visibility
             KeyCode::Char('t') | KeyCode::Char('T') => {
                 self.toggle_tasks_visibility();
+                return;
+            }
+            // ? to toggle shortcuts bar visibility
+            KeyCode::Char('?') => {
+                self.shortcuts_visible = !self.shortcuts_visible;
                 return;
             }
             KeyCode::Tab => {
@@ -76,16 +88,6 @@ impl App {
                 self.focus_previous();
                 return;
             }
-            KeyCode::Char(c) if c.is_ascii_digit() => {
-                if let Some(n) = c.to_digit(10) {
-                    if let Some(panel_id) = PanelId::from_number(n as u8) {
-                        if self.is_panel_visible(panel_id) {
-                            self.focused_panel = panel_id;
-                        }
-                    }
-                }
-                return;
-            }
             _ => {}
         }
 
@@ -96,7 +98,17 @@ impl App {
 
     pub fn tick(&mut self) {
         // Always tick the timer regardless of focus
-        self.panels.timer.tick();
+        let session_completed = self.panels.timer.timer.tick();
+
+        // Play notification when session completes
+        if session_completed {
+            if let Some(ref audio) = self.audio {
+                audio.play_notification();
+            }
+        }
+
+        // Tick the panel for animation updates
+        self.panels.timer.tick_animation();
     }
 
     fn focus_next(&mut self) {
@@ -138,7 +150,10 @@ impl App {
     fn toggle_tasks_visibility(&mut self) {
         self.tasks_visible = !self.tasks_visible;
 
-        // If tasks panel was focused and is now hidden, move focus to timer
+        if self.tasks_visible && !self.two_columns {
+            self.focused_panel = PanelId::Tasks;
+        }
+
         if !self.tasks_visible && self.focused_panel == PanelId::Tasks {
             self.focused_panel = PanelId::Timer;
         }
@@ -146,8 +161,13 @@ impl App {
 
     pub fn is_panel_visible(&self, id: PanelId) -> bool {
         match id {
-            PanelId::Timer => true, // Timer is always visible
-            PanelId::Tasks => self.tasks_visible,
+            PanelId::Timer => self.two_columns || self.focused_panel == PanelId::Timer,
+            PanelId::Tasks => self.two_columns || self.focused_panel == PanelId::Tasks,
         }
+    }
+
+    /// Called by ui after layout calculation to update tasks visibility
+    pub fn update_columns(&mut self, two_columns: bool) {
+        self.two_columns = two_columns;
     }
 }

@@ -70,9 +70,17 @@ impl Timer {
         self.remaining = self.duration_for_session(self.session_type);
     }
 
-    pub fn tick(&mut self) {
+    pub fn set_session_type(&mut self, session_type: SessionType) {
+        if self.state == TimerState::Idle {
+            self.session_type = session_type;
+            self.remaining = self.duration_for_session(session_type);
+        }
+    }
+
+    /// Returns true if a session was completed during this tick
+    pub fn tick(&mut self) -> bool {
         if self.state != TimerState::Running {
-            return;
+            return false;
         }
 
         if let Some(last) = self.last_tick {
@@ -82,10 +90,12 @@ impl Timer {
             if elapsed >= self.remaining {
                 self.remaining = Duration::ZERO;
                 self.complete_session();
+                return true;
             } else {
                 self.remaining -= elapsed;
             }
         }
+        false
     }
 
     fn complete_session(&mut self) {

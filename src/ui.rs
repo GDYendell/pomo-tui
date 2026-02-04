@@ -1,60 +1,84 @@
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
 
 use crate::app::App;
+use crate::digits::TIMER_MIN_WIDTH;
 use crate::panel::{Panel, PanelId};
 
 pub struct AppLayout {
-    pub title: Rect,
-    pub timer: Rect,
+    pub timer: Option<Rect>,
     pub tasks: Option<Rect>,
-    pub shortcuts_bar: Rect,
+    pub shortcuts_bar: Option<Rect>,
 }
 
-pub fn create_layout(area: Rect, tasks_visible: bool) -> AppLayout {
-    // Main vertical split: title, main content, shortcuts
-    let main_chunks = Layout::vertical([
-        Constraint::Length(3), // Title
-        Constraint::Min(10),   // Main content
-        Constraint::Length(3), // Shortcuts bar
-    ])
-    .split(area);
+pub fn create_layout(area: Rect, app: &App) -> AppLayout {
+    // Main vertical split: main content + optional shortcuts
+    let main_chunks = if app.shortcuts_visible {
+        Layout::vertical([
+            Constraint::Min(10),   // Main content
+            Constraint::Length(3), // Shortcuts bar
+        ])
+        .split(area)
+    } else {
+        Layout::vertical([
+            Constraint::Min(10), // Main content only
+        ])
+        .split(area)
+    };
 
-    let (timer_area, tasks_area) = if tasks_visible {
+    let content_area = main_chunks[0];
+    let shortcuts_area = if app.shortcuts_visible {
+        Some(main_chunks[1])
+    } else {
+        None
+    };
+
+    let (timer_area, tasks_area) = if app.tasks_visible {
         // Split horizontally: timer (left 50%) and tasks (right 50%)
         let content_chunks = Layout::horizontal([
             Constraint::Percentage(50),
             Constraint::Percentage(50),
         ])
-        .split(main_chunks[1]);
-        (content_chunks[0], Some(content_chunks[1]))
+        .split(content_area);
+
+        if content_chunks[0].width < TIMER_MIN_WIDTH {
+            if app.focused_panel == PanelId::Timer {
+                (Some(content_area), None)
+            } else {
+                (None, Some(content_area))
+            } 
+        } else {
+            (Some(content_chunks[0]), Some(content_chunks[1]))
+        }
     } else {
         // Timer takes full width
-        (main_chunks[1], None)
+        (Some(content_area), None)
     };
 
     AppLayout {
-        title: main_chunks[0],
         timer: timer_area,
         tasks: tasks_area,
-        shortcuts_bar: main_chunks[2],
+        shortcuts_bar: shortcuts_area,
     }
 }
 
-pub fn render(frame: &mut Frame, app: &App) {
-    let layout = create_layout(frame.area(), app.tasks_visible);
+pub fn render(frame: &mut Frame, app: &mut App) {
+    let layout = create_layout(frame.area(), app);
 
-    render_title(frame, layout.title);
+    // Update app with whether two columns fit
+    app.update_columns(layout.timer.is_some() && layout.tasks.is_some());
 
-    // Render timer panel (always visible)
-    app.panels
-        .timer
-        .render(frame, layout.timer, app.focused_panel == PanelId::Timer);
+    // Render timer panel if visible
+    if let Some(timer_area) = layout.timer {
+        app.panels
+            .timer
+            .render(frame, timer_area, app.focused_panel == PanelId::Timer);
+    }
 
     // Render tasks panel if visible
     if let Some(tasks_area) = layout.tasks {
@@ -63,19 +87,10 @@ pub fn render(frame: &mut Frame, app: &App) {
             .render(frame, tasks_area, app.focused_panel == PanelId::Tasks);
     }
 
-    render_shortcuts_bar(frame, layout.shortcuts_bar, app);
-}
-
-fn render_title(frame: &mut Frame, area: Rect) {
-    let title = Paragraph::new("POMODORO TIMER")
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(title, area);
+    // Render shortcuts bar if visible
+    if let Some(shortcuts_area) = layout.shortcuts_bar {
+        render_shortcuts_bar(frame, shortcuts_area, app);
+    }
 }
 
 fn render_shortcuts_bar(frame: &mut Frame, area: Rect, app: &App) {
@@ -93,12 +108,12 @@ fn render_shortcuts_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     // Global shortcuts on the right
     shortcuts.push(Span::styled("[Tab]", Style::default().fg(Color::Yellow)));
-    shortcuts.push(Span::raw(" Next  "));
-    shortcuts.push(Span::styled("[1-2]", Style::default().fg(Color::Yellow)));
-    shortcuts.push(Span::raw(" Focus  "));
+    shortcuts.push(Span::raw(" Next Panel  "));
     shortcuts.push(Span::styled("[T]", Style::default().fg(Color::Yellow)));
     shortcuts.push(Span::raw(" Tasks  "));
-    shortcuts.push(Span::styled("[q]", Style::default().fg(Color::Yellow)));
+    shortcuts.push(Span::styled("[?]", Style::default().fg(Color::Yellow)));
+    shortcuts.push(Span::raw(" Help  "));
+    shortcuts.push(Span::styled("[Q]", Style::default().fg(Color::Yellow)));
     shortcuts.push(Span::raw(" Quit"));
 
     let line = Line::from(shortcuts);
