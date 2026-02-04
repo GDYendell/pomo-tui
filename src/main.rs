@@ -1,4 +1,6 @@
 mod app;
+mod panel;
+mod panels;
 mod timer;
 mod ui;
 

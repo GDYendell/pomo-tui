@@ -7,91 +7,102 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::timer::{SessionType, TimerState};
+use crate::panel::{Panel, PanelId};
+
+pub struct AppLayout {
+    pub title: Rect,
+    pub timer: Rect,
+    pub tasks: Option<Rect>,
+    pub shortcuts_bar: Rect,
+}
+
+pub fn create_layout(area: Rect, tasks_visible: bool) -> AppLayout {
+    // Main vertical split: title, main content, shortcuts
+    let main_chunks = Layout::vertical([
+        Constraint::Length(3), // Title
+        Constraint::Min(10),   // Main content
+        Constraint::Length(3), // Shortcuts bar
+    ])
+    .split(area);
+
+    let (timer_area, tasks_area) = if tasks_visible {
+        // Split horizontally: timer (left 50%) and tasks (right 50%)
+        let content_chunks = Layout::horizontal([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(main_chunks[1]);
+        (content_chunks[0], Some(content_chunks[1]))
+    } else {
+        // Timer takes full width
+        (main_chunks[1], None)
+    };
+
+    AppLayout {
+        title: main_chunks[0],
+        timer: timer_area,
+        tasks: tasks_area,
+        shortcuts_bar: main_chunks[2],
+    }
+}
 
 pub fn render(frame: &mut Frame, app: &App) {
-    let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(5),
-        Constraint::Length(3),
-    ])
-    .split(frame.area());
+    let layout = create_layout(frame.area(), app.tasks_visible);
 
-    render_title(frame, chunks[0]);
-    render_timer(frame, chunks[1], app);
-    render_controls(frame, chunks[2]);
+    render_title(frame, layout.title);
+
+    // Render timer panel (always visible)
+    app.panels
+        .timer
+        .render(frame, layout.timer, app.focused_panel == PanelId::Timer);
+
+    // Render tasks panel if visible
+    if let Some(tasks_area) = layout.tasks {
+        app.panels
+            .tasks
+            .render(frame, tasks_area, app.focused_panel == PanelId::Tasks);
+    }
+
+    render_shortcuts_bar(frame, layout.shortcuts_bar, app);
 }
 
 fn render_title(frame: &mut Frame, area: Rect) {
     let title = Paragraph::new("POMODORO TIMER")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(title, area);
 }
 
-fn render_timer(frame: &mut Frame, area: Rect, app: &App) {
-    let timer = &app.timer;
+fn render_shortcuts_bar(frame: &mut Frame, area: Rect, app: &App) {
+    let mut shortcuts: Vec<Span> = vec![];
 
-    let time_str = format!("{:02}:{:02}", timer.minutes(), timer.seconds());
+    // Panel-specific shortcuts first
+    let focused_panel = app.panels.get(app.focused_panel);
+    for shortcut in focused_panel.shortcuts() {
+        shortcuts.push(Span::styled(
+            format!("[{}]", shortcut.key),
+            Style::default().fg(Color::Yellow),
+        ));
+        shortcuts.push(Span::raw(format!(" {}  ", shortcut.description)));
+    }
 
-    let session_str = match timer.session_type {
-        SessionType::Work => "WORK SESSION",
-        SessionType::ShortBreak => "SHORT BREAK",
-        SessionType::LongBreak => "LONG BREAK",
-    };
+    // Global shortcuts on the right
+    shortcuts.push(Span::styled("[Tab]", Style::default().fg(Color::Yellow)));
+    shortcuts.push(Span::raw(" Next  "));
+    shortcuts.push(Span::styled("[1-2]", Style::default().fg(Color::Yellow)));
+    shortcuts.push(Span::raw(" Focus  "));
+    shortcuts.push(Span::styled("[T]", Style::default().fg(Color::Yellow)));
+    shortcuts.push(Span::raw(" Tasks  "));
+    shortcuts.push(Span::styled("[q]", Style::default().fg(Color::Yellow)));
+    shortcuts.push(Span::raw(" Quit"));
 
-    let state_str = match timer.state {
-        TimerState::Idle => "Press [Space] to start",
-        TimerState::Running => "Running...",
-        TimerState::Paused => "Paused",
-    };
-
-    let session_color = match timer.session_type {
-        SessionType::Work => Color::Red,
-        SessionType::ShortBreak => Color::Green,
-        SessionType::LongBreak => Color::Blue,
-    };
-
-    let content = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            time_str,
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            session_str,
-            Style::default().fg(session_color),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            state_str,
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(""),
-        Line::from(format!("Sessions completed: {}", timer.sessions_completed)),
-    ];
-
-    let paragraph = Paragraph::new(content)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-
-    frame.render_widget(paragraph, area);
-}
-
-fn render_controls(frame: &mut Frame, area: Rect) {
-    let controls = Line::from(vec![
-        Span::styled("[Space]", Style::default().fg(Color::Yellow)),
-        Span::raw(" Start/Pause  "),
-        Span::styled("[r]", Style::default().fg(Color::Yellow)),
-        Span::raw(" Reset  "),
-        Span::styled("[q]", Style::default().fg(Color::Yellow)),
-        Span::raw(" Quit"),
-    ]);
-
-    let paragraph = Paragraph::new(controls)
+    let line = Line::from(shortcuts);
+    let paragraph = Paragraph::new(line)
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
 
