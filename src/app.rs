@@ -1,42 +1,16 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::audio::AudioPlayer;
-use crate::panel::{Panel, PanelId};
+use crate::digits::TIMER_MIN_WIDTH;
+use crate::panel::{PanelId, Shortcut};
 use crate::panels::{TasksPanel, TimerPanel};
-
-pub struct PanelManager {
-    pub timer: TimerPanel,
-    pub tasks: TasksPanel,
-}
-
-impl Default for PanelManager {
-    fn default() -> Self {
-        Self {
-            timer: TimerPanel::default(),
-            tasks: TasksPanel::default(),
-        }
-    }
-}
-
-impl PanelManager {
-    pub fn get(&self, id: PanelId) -> &dyn Panel {
-        match id {
-            PanelId::Timer => &self.timer,
-            PanelId::Tasks => &self.tasks,
-        }
-    }
-
-    pub fn get_mut(&mut self, id: PanelId) -> &mut dyn Panel {
-        match id {
-            PanelId::Timer => &mut self.timer,
-            PanelId::Tasks => &mut self.tasks,
-        }
-    }
-}
+use crate::timer::{SessionType, Timer, TimerState};
 
 pub struct App {
     pub should_quit: bool,
-    pub panels: PanelManager,
+    pub timer: Timer,
+    pub timer_panel: TimerPanel,
+    pub tasks_panel: TasksPanel,
     pub focused_panel: PanelId,
     pub tasks_visible: bool,
     pub shortcuts_visible: bool,
@@ -48,7 +22,9 @@ impl Default for App {
     fn default() -> Self {
         Self {
             should_quit: false,
-            panels: PanelManager::default(),
+            timer: Timer::default(),
+            timer_panel: TimerPanel::default(),
+            tasks_panel: TasksPanel::default(),
             focused_panel: PanelId::Timer,
             tasks_visible: true,
             shortcuts_visible: true,
@@ -91,14 +67,35 @@ impl App {
             _ => {}
         }
 
-        // Pass to focused panel
-        let panel = self.panels.get_mut(self.focused_panel);
-        let _ = panel.handle_key(key);
+        // Panel-specific keys
+        match self.focused_panel {
+            PanelId::Timer => self.handle_timer_key(key),
+            PanelId::Tasks => {
+                let _ = self.tasks_panel.handle_key(key);
+            }
+        }
+    }
+
+    fn handle_timer_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char(' ') => self.timer.toggle(),
+            KeyCode::Char('r') | KeyCode::Char('R') => self.timer.reset(),
+            KeyCode::Char('w') | KeyCode::Char('W') if self.timer.state == TimerState::Idle => {
+                self.timer.set_session_type(SessionType::Work);
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') if self.timer.state == TimerState::Idle => {
+                self.timer.set_session_type(SessionType::ShortBreak);
+            }
+            KeyCode::Char('l') | KeyCode::Char('L') if self.timer.state == TimerState::Idle => {
+                self.timer.set_session_type(SessionType::LongBreak);
+            }
+            _ => {}
+        }
     }
 
     pub fn tick(&mut self) {
         // Always tick the timer regardless of focus
-        let session_completed = self.panels.timer.timer.tick();
+        let session_completed = self.timer.tick();
 
         // Play notification when session completes
         if session_completed {
@@ -108,7 +105,14 @@ impl App {
         }
 
         // Tick the panel for animation updates
-        self.panels.timer.tick_animation();
+        self.timer_panel.tick_animation();
+    }
+
+    pub fn focused_shortcuts(&self) -> Vec<Shortcut> {
+        match self.focused_panel {
+            PanelId::Timer => self.timer_panel.shortcuts(&self.timer),
+            PanelId::Tasks => self.tasks_panel.shortcuts(),
+        }
     }
 
     fn focus_next(&mut self) {
@@ -166,8 +170,8 @@ impl App {
         }
     }
 
-    /// Called by ui after layout calculation to update tasks visibility
-    pub fn update_columns(&mut self, two_columns: bool) {
-        self.two_columns = two_columns;
+    /// Called before render to update layout state based on terminal width
+    pub fn update_layout(&mut self, width: u16) {
+        self.two_columns = self.tasks_visible && (width / 2) >= TIMER_MIN_WIDTH;
     }
 }

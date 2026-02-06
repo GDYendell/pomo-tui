@@ -1,4 +1,3 @@
-use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -8,33 +7,21 @@ use ratatui::{
 };
 
 use crate::digits::{render_time, render_wave, wave_position};
-use crate::panel::{KeyHandleResult, Panel, PanelId, Shortcut};
+use crate::panel::Shortcut;
 use crate::timer::{SessionType, Timer, TimerState};
 
 pub struct TimerPanel {
-    pub timer: Timer,
     tick_count: u32,
 }
 
 impl Default for TimerPanel {
     fn default() -> Self {
-        Self {
-            timer: Timer::default(),
-            tick_count: 0,
-        }
+        Self { tick_count: 0 }
     }
 }
 
-impl Panel for TimerPanel {
-    fn id(&self) -> PanelId {
-        PanelId::Timer
-    }
-
-    fn title(&self) -> &str {
-        "Timer"
-    }
-
-    fn render(&self, frame: &mut Frame, area: Rect, focused: bool) {
+impl TimerPanel {
+    pub fn render(&self, frame: &mut Frame, area: Rect, focused: bool, timer: &Timer) {
         let border_color = if focused {
             Color::Cyan
         } else {
@@ -56,38 +43,11 @@ impl Panel for TimerPanel {
         ])
         .split(inner);
 
-        self.render_timer_display(frame, chunks[0]);
+        self.render_timer_display(frame, chunks[0], timer);
         self.render_current_task(frame, chunks[1]);
     }
 
-    fn handle_key(&mut self, key: KeyEvent) -> KeyHandleResult {
-        match key.code {
-            KeyCode::Char(' ') => {
-                self.timer.toggle();
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('r') | KeyCode::Char('R') => {
-                self.timer.reset();
-                KeyHandleResult::Consumed
-            }
-            // Mode switching only when idle
-            KeyCode::Char('w') | KeyCode::Char('W') if self.timer.state == TimerState::Idle => {
-                self.timer.set_session_type(SessionType::Work);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('s') | KeyCode::Char('S') if self.timer.state == TimerState::Idle => {
-                self.timer.set_session_type(SessionType::ShortBreak);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('l') | KeyCode::Char('L') if self.timer.state == TimerState::Idle => {
-                self.timer.set_session_type(SessionType::LongBreak);
-                KeyHandleResult::Consumed
-            }
-            _ => KeyHandleResult::Ignored,
-        }
-    }
-
-    fn shortcuts(&self) -> Vec<Shortcut> {
+    pub fn shortcuts(&self, timer: &Timer) -> Vec<Shortcut> {
         let mut shortcuts = vec![
             Shortcut {
                 key: "Space",
@@ -100,7 +60,7 @@ impl Panel for TimerPanel {
         ];
 
         // Show mode switching shortcuts only when idle
-        if self.timer.state == TimerState::Idle {
+        if timer.state == TimerState::Idle {
             shortcuts.push(Shortcut {
                 key: "W/S/L",
                 description: "Mode",
@@ -110,21 +70,12 @@ impl Panel for TimerPanel {
         shortcuts
     }
 
-    fn tick(&mut self) {
-        self.timer.tick();
-        self.tick_count = self.tick_count.wrapping_add(1);
-    }
-}
-
-impl TimerPanel {
     /// Update animation tick counter without ticking the timer
     pub fn tick_animation(&mut self) {
         self.tick_count = self.tick_count.wrapping_add(1);
     }
 
-    fn render_timer_display(&self, frame: &mut Frame, area: Rect) {
-        let timer = &self.timer;
-
+    fn render_timer_display(&self, frame: &mut Frame, area: Rect, timer: &Timer) {
         // Render block digits
         let time_lines = render_time(timer.minutes(), timer.seconds());
 
@@ -160,7 +111,10 @@ impl TimerPanel {
         }
 
         content.push(Line::from(""));
-        content.push(Line::from(Span::styled(wave, Style::default().fg(session_color))));
+        content.push(Line::from(Span::styled(
+            wave,
+            Style::default().fg(session_color),
+        )));
         content.push(Line::from(""));
         content.push(Line::from(Span::styled(
             session_str,

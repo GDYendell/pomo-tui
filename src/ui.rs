@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::app::App;
 use crate::digits::TIMER_MIN_WIDTH;
-use crate::panel::{Panel, PanelId};
+use crate::panel::PanelId;
 
 pub struct AppLayout {
     pub timer: Option<Rect>,
@@ -67,23 +67,22 @@ pub fn create_layout(area: Rect, app: &App) -> AppLayout {
     }
 }
 
-pub fn render(frame: &mut Frame, app: &mut App) {
+pub fn render(frame: &mut Frame, app: &App) {
     let layout = create_layout(frame.area(), app);
-
-    // Update app with whether two columns fit
-    app.update_columns(layout.timer.is_some() && layout.tasks.is_some());
 
     // Render timer panel if visible
     if let Some(timer_area) = layout.timer {
-        app.panels
-            .timer
-            .render(frame, timer_area, app.focused_panel == PanelId::Timer);
+        app.timer_panel.render(
+            frame,
+            timer_area,
+            app.focused_panel == PanelId::Timer,
+            &app.timer,
+        );
     }
 
     // Render tasks panel if visible
     if let Some(tasks_area) = layout.tasks {
-        app.panels
-            .tasks
+        app.tasks_panel
             .render(frame, tasks_area, app.focused_panel == PanelId::Tasks);
     }
 
@@ -97,8 +96,7 @@ fn render_shortcuts_bar(frame: &mut Frame, area: Rect, app: &App) {
     let mut shortcuts: Vec<Span> = vec![];
 
     // Panel-specific shortcuts first
-    let focused_panel = app.panels.get(app.focused_panel);
-    for shortcut in focused_panel.shortcuts() {
+    for shortcut in app.focused_shortcuts() {
         shortcuts.push(Span::styled(
             format!("[{}]", shortcut.key),
             Style::default().fg(Color::Yellow),

@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::panel::{KeyHandleResult, Panel, PanelId, Shortcut};
+use crate::panel::{KeyHandleResult, Shortcut};
 
 pub struct TasksPanel;
 
@@ -16,16 +16,8 @@ impl Default for TasksPanel {
     }
 }
 
-impl Panel for TasksPanel {
-    fn id(&self) -> PanelId {
-        PanelId::Tasks
-    }
-
-    fn title(&self) -> &str {
-        "Tasks"
-    }
-
-    fn render(&self, frame: &mut Frame, area: Rect, focused: bool) {
+impl TasksPanel {
+    pub fn render(&self, frame: &mut Frame, area: Rect, focused: bool) {
         let border_color = if focused {
             Color::Cyan
         } else {
@@ -53,16 +45,14 @@ impl Panel for TasksPanel {
         self.render_completed_section(frame, chunks[2]);
     }
 
-    fn handle_key(&mut self, _key: KeyEvent) -> KeyHandleResult {
+    pub fn handle_key(&mut self, _key: KeyEvent) -> KeyHandleResult {
         KeyHandleResult::Ignored
     }
 
-    fn shortcuts(&self) -> Vec<Shortcut> {
+    pub fn shortcuts(&self) -> Vec<Shortcut> {
         vec![]
     }
-}
 
-impl TasksPanel {
     fn render_backlog_section(&self, frame: &mut Frame, area: Rect) {
         let block = Block::default()
             .borders(Borders::BOTTOM)

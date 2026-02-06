@@ -41,7 +41,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
     let tick_rate = Duration::from_millis(100);
 
     loop {
-        terminal.draw(|frame| ui::render(frame, &mut app))?;
+        let size = terminal.size()?;
+        app.update_layout(size.width);
+        terminal.draw(|frame| ui::render(frame, &app))?;
 
         if event::poll(tick_rate)? {
             if let Event::Key(key) = event::read()? {

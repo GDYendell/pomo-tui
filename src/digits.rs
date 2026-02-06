@@ -1,5 +1,4 @@
 pub const DIGIT_HEIGHT: usize = 5;
-pub const DIGIT_WIDTH: usize = 6;
 pub const DIGIT_SPACING: usize = 2;
 
 /// Minimum width needed to display block digits with 1 char padding on each side
@@ -119,7 +118,15 @@ pub fn render_time(minutes: u64, seconds: u64) -> Vec<String> {
         .map(|i| {
             format!(
                 "{}{}{}{}{}{}{}{}{}",
-                d1[i], spacing, d2[i], colon_spacing, COLON[i], colon_spacing, d3[i], spacing, d4[i]
+                d1[i],
+                spacing,
+                d2[i],
+                colon_spacing,
+                COLON[i],
+                colon_spacing,
+                d3[i],
+                spacing,
+                d4[i]
             )
         })
         .collect()
@@ -133,22 +140,18 @@ pub fn render_wave(position: Option<usize>) -> String {
     const DOT_SPACING: &str = " ";
 
     match position {
-        Some(pos) => {
-            (0..5)
-                .map(|i| if i == pos { LARGE } else { SMALL })
-                .collect::<Vec<_>>()
-                .iter()
-                .map(|c| c.to_string())
-                .collect::<Vec<_>>()
-                .join(DOT_SPACING)
-        }
-        None => {
-            vec![SMALL; 5]
-                .iter()
-                .map(|c| c.to_string())
-                .collect::<Vec<_>>()
-                .join(DOT_SPACING)
-        }
+        Some(pos) => (0..5)
+            .map(|i| if i == pos { LARGE } else { SMALL })
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(DOT_SPACING),
+        None => vec![SMALL; 5]
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(DOT_SPACING),
     }
 }
 
