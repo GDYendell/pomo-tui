@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -13,55 +13,32 @@ use crate::panel::PanelId;
 pub struct AppLayout {
     pub timer: Option<Rect>,
     pub tasks: Option<Rect>,
-    pub shortcuts_bar: Option<Rect>,
 }
 
 pub fn create_layout(area: Rect, app: &App) -> AppLayout {
-    // Main vertical split: main content + optional shortcuts
-    let main_chunks = if app.shortcuts_visible {
-        Layout::vertical([
-            Constraint::Min(10),   // Main content
-            Constraint::Length(3), // Shortcuts bar
-        ])
-        .split(area)
-    } else {
-        Layout::vertical([
-            Constraint::Min(10), // Main content only
-        ])
-        .split(area)
-    };
-
-    let content_area = main_chunks[0];
-    let shortcuts_area = if app.shortcuts_visible {
-        Some(main_chunks[1])
-    } else {
-        None
-    };
-
     let (timer_area, tasks_area) = if app.tasks_visible {
         // Split horizontally: timer (left 50%) and tasks (right 50%)
         let content_chunks =
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(content_area);
+                .split(area);
 
         if content_chunks[0].width < TIMER_MIN_WIDTH {
             if app.focused_panel == PanelId::Timer {
-                (Some(content_area), None)
+                (Some(area), None)
             } else {
-                (None, Some(content_area))
+                (None, Some(area))
             }
         } else {
             (Some(content_chunks[0]), Some(content_chunks[1]))
         }
     } else {
         // Timer takes full width
-        (Some(content_area), None)
+        (Some(area), None)
     };
 
     AppLayout {
         timer: timer_area,
         tasks: tasks_area,
-        shortcuts_bar: shortcuts_area,
     }
 }
 
@@ -94,45 +71,84 @@ pub fn render(frame: &mut Frame, app: &App) {
         );
     }
 
-    // Render shortcuts bar if visible
-    if let Some(shortcuts_area) = layout.shortcuts_bar {
-        render_shortcuts_bar(frame, shortcuts_area, app);
-    }
-
-    // Render sync dialogue overlay if active
+    // Render overlays
     if let Some(ref dialogue) = app.sync_dialogue {
         render_sync_dialogue(frame, dialogue);
+    } else if app.shortcuts_visible {
+        render_help_overlay(frame, app);
     }
 }
 
-fn render_shortcuts_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let mut shortcuts: Vec<Span> = vec![];
+fn render_help_overlay(frame: &mut Frame, app: &App) {
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from("")); // Empty line at top
 
-    // Panel-specific shortcuts first
+    // Panel-specific shortcuts
+    let panel_name = match app.focused_panel {
+        PanelId::Timer => "Timer",
+        PanelId::Tasks => "Tasks",
+    };
+    lines.push(Line::from(Span::styled(
+        format!("  {} Panel", panel_name),
+        Style::default().fg(Color::White),
+    )));
+
     for shortcut in app.focused_shortcuts() {
-        shortcuts.push(Span::styled(
-            format!("[{}]", shortcut.key),
-            Style::default().fg(Color::Yellow),
-        ));
-        shortcuts.push(Span::raw(format!(" {}  ", shortcut.description)));
+        lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled(
+                format!("[{}]", shortcut.key),
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::raw(format!(" {}", shortcut.description)),
+        ]));
     }
 
-    // Global shortcuts on the right
-    shortcuts.push(Span::styled("[t]", Style::default().fg(Color::Yellow)));
-    shortcuts.push(Span::raw(" Focus  "));
-    shortcuts.push(Span::styled("[T]", Style::default().fg(Color::Yellow)));
-    shortcuts.push(Span::raw(" Tasks "));
-    shortcuts.push(Span::styled("[?]", Style::default().fg(Color::Yellow)));
-    shortcuts.push(Span::raw(" Help  "));
-    shortcuts.push(Span::styled("[Q]", Style::default().fg(Color::Yellow)));
-    shortcuts.push(Span::raw(" Quit"));
+    lines.push(Line::from(""));
 
-    let line = Line::from(shortcuts);
-    let paragraph = Paragraph::new(line)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
+    // Global shortcuts
+    lines.push(Line::from(Span::styled(
+        "  Global",
+        Style::default().fg(Color::White),
+    )));
+    let global_shortcuts = [
+        ("t", "Switch Panel Focus"),
+        ("T", "Toggle Tasks Panel"),
+        ("s", "Sync with File"),
+        ("?", "Toggle Help"),
+        ("Q", "Quit"),
+    ];
+    for (key, desc) in global_shortcuts {
+        lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled(format!("[{}]", key), Style::default().fg(Color::Yellow)),
+            Span::raw(format!(" {}", desc)),
+        ]));
+    }
 
-    frame.render_widget(paragraph, area);
+    lines.push(Line::from("")); // Empty line at bottom
+
+    // Calculate dialogue dimensions
+    let content_height = lines.len() as u16 + 2; // +2 for borders
+    let dialogue_width = 30u16;
+    let dialogue_height = content_height.min(frame.area().height.saturating_sub(4));
+
+    // Center the dialogue
+    let area = frame.area();
+    let x = area.x + (area.width.saturating_sub(dialogue_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(dialogue_height)) / 2;
+    let dialogue_area = Rect::new(x, y, dialogue_width, dialogue_height);
+
+    // Clear background and render overlay
+    frame.render_widget(Clear, dialogue_area);
+
+    let block = Block::default()
+        .title(" Help ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, dialogue_area);
 }
 
 fn render_sync_dialogue(frame: &mut Frame, dialogue: &SyncDialogue) {

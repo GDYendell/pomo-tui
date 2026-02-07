@@ -50,7 +50,7 @@ impl App {
             task_manager,
             focused_panel: PanelId::Timer,
             tasks_visible: true,
-            shortcuts_visible: true,
+            shortcuts_visible: false,
             two_columns: false,
             error_message,
             sync_dialogue: None,
@@ -64,6 +64,15 @@ impl App {
         // Intercept if sync dialogue is active
         if self.sync_dialogue.is_some() {
             self.handle_sync_dialogue_key(key);
+            return;
+        }
+
+        // Intercept if help overlay is active
+        if self.shortcuts_visible {
+            match key.code {
+                KeyCode::Char('?') | KeyCode::Esc => self.shortcuts_visible = false,
+                _ => {}
+            }
             return;
         }
 

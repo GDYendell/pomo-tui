@@ -7,7 +7,7 @@
 - [x] Timer panel should not show current task in a break mode
 - [x] Remove s keybind to swap to short break, only tab should be used for this
 - [x] Reading from file should not clear current tasks (unless they are removed entirely by the read)
-- [ ] Turn the help panel into an overlay like the sync dialogue
+- [x] Turn the help panel into an overlay like the sync dialogue
 
 ## Features
 - [x] `s` opens a dialogue. The dialogue allows writing changes to file, or reading new tasks.
