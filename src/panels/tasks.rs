@@ -11,16 +11,27 @@ use crate::panel::{KeyHandleResult, Shortcut};
 use crate::task::TaskSection;
 use crate::task_manager::TaskManager;
 
-pub struct TasksPanel;
+pub struct TasksPanel {
+    /// Visible task rows per section (updated during render)
+    pub section_page_size: usize,
+}
 
 impl Default for TasksPanel {
     fn default() -> Self {
-        Self
+        Self {
+            section_page_size: 10,
+        }
     }
 }
 
 impl TasksPanel {
-    pub fn render(&self, frame: &mut Frame, area: Rect, focused: bool, task_manager: &TaskManager) {
+    pub fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        focused: bool,
+        task_manager: &TaskManager,
+    ) {
         let border_color = if focused {
             Color::Cyan
         } else {
@@ -35,13 +46,24 @@ impl TasksPanel {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Split into three equal sections: Backlog, Current, Completed
+        // Split into three equal sections manually to avoid rounding issues
+        let h = inner.height;
+        let third = h / 3;
+        let remainder = h % 3;
+        // Distribute remainder: first section gets +1 if remainder >= 1, second if >= 2
+        let h0 = third + if remainder >= 1 { 1 } else { 0 };
+        let h1 = third + if remainder >= 2 { 1 } else { 0 };
+        let h2 = h - h0 - h1;
         let chunks = Layout::vertical([
-            Constraint::Ratio(1, 3),
-            Constraint::Ratio(1, 3),
-            Constraint::Ratio(1, 3),
+            Constraint::Length(h0),
+            Constraint::Length(h1),
+            Constraint::Length(h2),
         ])
         .split(inner);
+
+        // Store page size for page up/down
+        // Section inner height = chunk height - border (1) - ellipsis row (1)
+        self.section_page_size = (third as usize).saturating_sub(3).max(1);
 
         self.render_section(
             frame,
@@ -113,6 +135,15 @@ impl TasksPanel {
                 task_manager.complete_focused();
                 KeyHandleResult::Consumed
             }
+            KeyCode::Char(',') => {
+                task_manager.page_down(self.section_page_size);
+                KeyHandleResult::Consumed
+            }
+            KeyCode::Char('.') => {
+                task_manager.page_up(self.section_page_size);
+                KeyHandleResult::Consumed
+            }
+            KeyCode::Char('a') => KeyHandleResult::AddTask,
             _ => KeyHandleResult::Ignored,
         }
     }
@@ -138,6 +169,10 @@ impl TasksPanel {
             Shortcut {
                 key: "x",
                 description: "Complete",
+            },
+            Shortcut {
+                key: "a",
+                description: "Add",
             },
             Shortcut {
                 key: "s",
@@ -182,10 +217,17 @@ impl TasksPanel {
         frame.render_widget(block, area);
 
         if tasks.is_empty() {
+            let area = Rect {
+                height: inner.height.saturating_sub(2),
+                ..inner
+            };
+            let centered = Layout::vertical([Constraint::Length(1)])
+                .flex(ratatui::layout::Flex::Center)
+                .split(area)[0];
             let placeholder = Paragraph::new("(empty)")
                 .style(Style::default().fg(Color::DarkGray))
                 .alignment(Alignment::Center);
-            frame.render_widget(placeholder, inner);
+            frame.render_widget(placeholder, centered);
             return;
         }
 
@@ -202,17 +244,28 @@ impl TasksPanel {
         let scroll_offset = if is_focused_section && visible_height > 0 {
             let max_offset = tasks.len().saturating_sub(visible_height);
             // Keep cursor at least `margin` from bottom when scrolling down
-            let min_offset_for_cursor = focus.index.saturating_sub(visible_height.saturating_sub(margin).saturating_sub(1));
+            let min_offset_for_cursor = focus
+                .index
+                .saturating_sub(visible_height.saturating_sub(margin).saturating_sub(1));
             // Keep cursor at least `margin` from top when scrolling up
             let max_offset_for_cursor = focus.index.saturating_sub(margin);
 
             // Clamp between the two constraints
-            min_offset_for_cursor.min(max_offset).max(0).min(max_offset_for_cursor.max(0).min(max_offset))
+            min_offset_for_cursor
+                .min(max_offset)
+                .max(0)
+                .min(max_offset_for_cursor.max(0).min(max_offset))
         } else {
             0
         };
 
         let has_more_below = scroll_offset + visible_height < tasks.len();
+
+        let prefix_width = 6; // "> [x] " or "  [x] "
+        let trailing_space = 10;
+        let max_text_width = (inner.width as usize)
+            .saturating_sub(prefix_width)
+            .saturating_sub(trailing_space);
 
         let items: Vec<ListItem> = tasks
             .iter()
@@ -228,12 +281,14 @@ impl TasksPanel {
                     "[ ] "
                 };
 
+                let display_text = truncate_with_ellipsis(&task.text, max_text_width);
+
                 let content = if is_selected {
                     Line::from(vec![
                         Span::styled("> ", Style::default().fg(Color::Cyan)),
                         Span::styled(prefix, Style::default().fg(Color::DarkGray)),
                         Span::styled(
-                            &task.text,
+                            display_text,
                             Style::default()
                                 .fg(Color::White)
                                 .add_modifier(Modifier::BOLD),
@@ -243,7 +298,7 @@ impl TasksPanel {
                     Line::from(vec![
                         Span::raw("  "),
                         Span::styled(prefix, Style::default().fg(Color::DarkGray)),
-                        Span::styled(&task.text, Style::default().fg(Color::Gray)),
+                        Span::styled(display_text, Style::default().fg(Color::Gray)),
                     ])
                 };
 
@@ -267,4 +322,29 @@ impl TasksPanel {
         let list = List::new(all_items);
         frame.render_widget(list, inner);
     }
+}
+
+fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
+    if text.len() <= max_width {
+        return text.to_string();
+    }
+    if max_width < 3 {
+        return ".".repeat(max_width);
+    }
+    let limit = max_width - 3; // room for "..."
+    let mut result = String::new();
+    for word in text.split_whitespace() {
+        if result.is_empty() {
+            if word.len() > limit {
+                return "...".to_string();
+            }
+            result = word.to_string();
+        } else if result.len() + 1 + word.len() <= limit {
+            result.push(' ');
+            result.push_str(word);
+        } else {
+            break;
+        }
+    }
+    format!("{}...", result)
 }

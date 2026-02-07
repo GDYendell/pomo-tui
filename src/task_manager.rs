@@ -174,22 +174,20 @@ impl TaskManager {
         let all_file_tasks: Vec<&String> =
             file_unchecked.iter().chain(file_checked.iter()).collect();
 
-        // App incomplete, not in file at all → default Remove
-        for text in &app_incomplete {
-            if !all_file_tasks.contains(&text) {
+        // App-only tasks: exist in app but not in file → default to current state
+        for task in self.backlog.iter().chain(self.current.iter()) {
+            if !all_file_tasks.contains(&&task.text) {
                 items.push(SyncItem {
-                    text: text.clone(),
-                    resolution: SyncResolution::Remove,
+                    text: task.text.clone(),
+                    resolution: SyncResolution::Incomplete,
                 });
             }
         }
-
-        // App complete, not in file at all → default Remove
-        for text in &app_complete {
-            if !all_file_tasks.contains(&text) {
+        for task in &self.completed {
+            if !all_file_tasks.contains(&&task.text) {
                 items.push(SyncItem {
-                    text: text.clone(),
-                    resolution: SyncResolution::Remove,
+                    text: task.text.clone(),
+                    resolution: SyncResolution::Complete,
                 });
             }
         }
@@ -259,6 +257,14 @@ impl TaskManager {
                         }
                     }
                     used.push(line_idx);
+                } else if item.resolution != SyncResolution::Remove {
+                    // New task not in file — append
+                    let new_line = match item.resolution {
+                        SyncResolution::Incomplete => format!("- [ ] {}", item.text),
+                        SyncResolution::Complete => format!("- [x] {}", item.text),
+                        SyncResolution::Remove => unreachable!(),
+                    };
+                    file_lines.push(new_line);
                 }
             }
 
@@ -304,6 +310,10 @@ impl TaskManager {
         None
     }
 
+    pub fn add_task(&mut self, text: String, section: TaskSection) {
+        self.section_mut(section).push(Task::new(text));
+    }
+
     pub fn backlog(&self) -> &[Task] {
         &self.backlog
     }
@@ -314,6 +324,10 @@ impl TaskManager {
 
     pub fn completed(&self) -> &[Task] {
         &self.completed
+    }
+
+    pub fn has_file_path(&self) -> bool {
+        self.file_path.is_some()
     }
 
     pub fn active_task(&self) -> Option<&Task> {
@@ -347,6 +361,17 @@ impl TaskManager {
         if self.focus.index > 0 {
             self.focus.index -= 1;
         }
+    }
+
+    pub fn page_down(&mut self, page_size: usize) {
+        let section_len = self.section_len(self.focus.section);
+        if section_len > 0 {
+            self.focus.index = (self.focus.index + page_size).min(section_len - 1);
+        }
+    }
+
+    pub fn page_up(&mut self, page_size: usize) {
+        self.focus.index = self.focus.index.saturating_sub(page_size);
     }
 
     pub fn next_section(&mut self) {

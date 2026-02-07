@@ -6,12 +6,19 @@ use crate::audio::AudioPlayer;
 use crate::digits::TIMER_MIN_WIDTH;
 use crate::panel::{KeyHandleResult, PanelId, Shortcut};
 use crate::panels::{TasksPanel, TimerPanel};
+use crate::task::TaskSection;
 use crate::task_manager::{SyncItem, SyncResolution, TaskManager};
 use crate::timer::{SessionType, Timer, TimerState};
 
 pub struct SyncDialogue {
     pub items: Vec<SyncItem>,
     pub focused: usize,
+}
+
+pub struct TaskInput {
+    pub text: String,
+    pub cursor: usize,
+    pub section: TaskSection,
 }
 
 pub struct App {
@@ -26,6 +33,7 @@ pub struct App {
     pub two_columns: bool,
     pub error_message: Option<String>,
     pub sync_dialogue: Option<SyncDialogue>,
+    pub task_input: Option<TaskInput>,
     audio: Option<AudioPlayer>,
 }
 
@@ -54,6 +62,7 @@ impl App {
             two_columns: false,
             error_message,
             sync_dialogue: None,
+            task_input: None,
             audio: AudioPlayer::new(),
         }
     }
@@ -61,6 +70,18 @@ impl App {
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
+        // Intercept if error overlay is active
+        if self.error_message.is_some() {
+            self.error_message = None;
+            return;
+        }
+
+        // Intercept if task input is active
+        if self.task_input.is_some() {
+            self.handle_task_input_key(key);
+            return;
+        }
+
         // Intercept if sync dialogue is active
         if self.sync_dialogue.is_some() {
             self.handle_sync_dialogue_key(key);
@@ -106,12 +127,21 @@ impl App {
         // Panel-specific keys (may consume Tab)
         let consumed = match self.focused_panel {
             PanelId::Timer => self.handle_timer_key(key),
-            PanelId::Tasks => {
-                matches!(
-                    self.tasks_panel.handle_key(key, &mut self.task_manager),
-                    KeyHandleResult::Consumed
-                )
-            }
+            PanelId::Tasks => match self.tasks_panel.handle_key(key, &mut self.task_manager) {
+                KeyHandleResult::Consumed => true,
+                KeyHandleResult::AddTask => {
+                    let section = self.task_manager.focus.section;
+                    if section != TaskSection::Completed {
+                        self.task_input = Some(TaskInput {
+                            text: String::new(),
+                            cursor: 0,
+                            section,
+                        });
+                    }
+                    true
+                }
+                KeyHandleResult::Ignored => false,
+            },
         };
 
         if consumed {
@@ -130,6 +160,11 @@ impl App {
     }
 
     fn sync_tasks(&mut self) {
+        if !self.task_manager.has_file_path() {
+            self.error_message =
+                Some("No task file provided. Use --tasks <file> to enable sync.".to_string());
+            return;
+        }
         match self.task_manager.compute_sync_items() {
             Ok(items) => {
                 self.sync_dialogue = Some(SyncDialogue { items, focused: 0 });
@@ -138,6 +173,47 @@ impl App {
             Err(e) => {
                 self.error_message = Some(format!("Sync failed: {}", e));
             }
+        }
+    }
+
+    fn handle_task_input_key(&mut self, key: KeyEvent) {
+        let Some(input) = self.task_input.as_mut() else {
+            return;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                self.task_input = None;
+            }
+            KeyCode::Enter => {
+                let text = input.text.trim().to_string();
+                let section = input.section;
+                if !text.is_empty() {
+                    self.task_manager.add_task(text, section);
+                }
+                self.task_input = None;
+            }
+            KeyCode::Backspace => {
+                if input.cursor > 0 {
+                    input.text.remove(input.cursor - 1);
+                    input.cursor -= 1;
+                }
+            }
+            KeyCode::Left => {
+                if input.cursor > 0 {
+                    input.cursor -= 1;
+                }
+            }
+            KeyCode::Right => {
+                if input.cursor < input.text.len() {
+                    input.cursor += 1;
+                }
+            }
+            KeyCode::Char(c) => {
+                input.text.insert(input.cursor, c);
+                input.cursor += 1;
+            }
+            _ => {}
         }
     }
 

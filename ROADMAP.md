@@ -35,20 +35,23 @@
 - [x] Current tasks panel - Mark done/undone, return to backlog
 - [x] Completed tasks panel - ~~Top 5 displayed, newest first~~
 - [x] Markdown persistence - Load/save tasks to `.md` file
-- [ ] Task line tracking - Sync by exact text match, warn if no match found
+- [x] Task line tracking - Sync by exact text match, warn if no match found
 - [x] Task movement - Move tasks between sections (backlog/current/completed)
 - [x] Completed tasks display - Show all completed tasks in section order
-- [ ] Sync dialogue - `s` opens dialogue to write changes or read new tasks
+- [x] Sync dialogue - `s` opens interactive dialogue to resolve differences between app state and file
+- [x] Help overlay - `?` opens centered help overlay with panel-specific and global shortcuts
+- [x] Page scrolling - `,`/`.` to page down/up in task sections
 
 ---
 
 ## Phase 4: UI Polish
 **Goal**: Layout refinements and visual enhancements
 
-- [ ] Minimum terminal size - Enforce minimum size to fit timer with border
-- [ ] Break mode ASCII art - Display art instead of current task during breaks
-- [ ] Timer panel sizing - Main section sized to content, extra space to task/art area
-- [ ] Consistent task panel sizing - Stable sizing when resizing terminal
+- [x] Minimum window size - Enforced via Hyprland window rule (400x250px)
+- [x] Timer panel adaptive layout - Digits always shown, wave/label centered, bottom section appears with space
+- [x] Bottom section text wrapping - Wraps long task text with padding
+- [x] Task text truncation - Truncated on whole words with `...` in task sections
+- [x] Consistent task panel sizing - Manual height division instead of `Constraint::Ratio`
 
 ---
 
