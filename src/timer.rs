@@ -77,6 +77,18 @@ impl Timer {
         }
     }
 
+    pub fn next_session_type(&mut self) {
+        if self.state == TimerState::Idle {
+            let next = match self.session_type {
+                SessionType::Work => SessionType::ShortBreak,
+                SessionType::ShortBreak => SessionType::LongBreak,
+                SessionType::LongBreak => SessionType::Work,
+            };
+            self.session_type = next;
+            self.remaining = self.duration_for_session(next);
+        }
+    }
+
     /// Returns true if a session was completed during this tick
     pub fn tick(&mut self) -> bool {
         if self.state != TimerState::Running {

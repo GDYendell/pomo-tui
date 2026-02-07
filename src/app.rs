@@ -1,34 +1,59 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::path::PathBuf;
+
+use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::audio::AudioPlayer;
 use crate::digits::TIMER_MIN_WIDTH;
-use crate::panel::{PanelId, Shortcut};
+use crate::panel::{KeyHandleResult, PanelId, Shortcut};
 use crate::panels::{TasksPanel, TimerPanel};
+use crate::task_manager::{SyncItem, SyncResolution, TaskManager};
 use crate::timer::{SessionType, Timer, TimerState};
+
+pub struct SyncDialogue {
+    pub items: Vec<SyncItem>,
+    pub focused: usize,
+}
 
 pub struct App {
     pub should_quit: bool,
     pub timer: Timer,
     pub timer_panel: TimerPanel,
     pub tasks_panel: TasksPanel,
+    pub task_manager: TaskManager,
     pub focused_panel: PanelId,
     pub tasks_visible: bool,
     pub shortcuts_visible: bool,
     pub two_columns: bool,
+    pub error_message: Option<String>,
+    pub sync_dialogue: Option<SyncDialogue>,
     audio: Option<AudioPlayer>,
 }
 
-impl Default for App {
-    fn default() -> Self {
+impl App {
+    pub fn new(task_file: Option<PathBuf>) -> Self {
+        let (task_manager, error_message) = match task_file {
+            Some(path) => match TaskManager::load(path) {
+                Ok(tm) => (tm, None),
+                Err(e) => (
+                    TaskManager::new(),
+                    Some(format!("Failed to load tasks: {}", e)),
+                ),
+            },
+            None => (TaskManager::new(), None),
+        };
+
         Self {
             should_quit: false,
             timer: Timer::default(),
             timer_panel: TimerPanel::default(),
             tasks_panel: TasksPanel::default(),
+            task_manager,
             focused_panel: PanelId::Timer,
             tasks_visible: true,
             shortcuts_visible: true,
             two_columns: false,
+            error_message,
+            sync_dialogue: None,
             audio: AudioPlayer::new(),
         }
     }
@@ -36,6 +61,12 @@ impl Default for App {
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
+        // Intercept if sync dialogue is active
+        if self.sync_dialogue.is_some() {
+            self.handle_sync_dialogue_key(key);
+            return;
+        }
+
         // Global shortcuts first
         match key.code {
             KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
@@ -43,8 +74,16 @@ impl App {
                 return;
             }
             // T to toggle tasks panel visibility
-            KeyCode::Char('t') | KeyCode::Char('T') => {
+            KeyCode::Char('T') => {
                 self.toggle_tasks_visibility();
+                return;
+            }
+            // t to change panel focus (only if tasks panel is visible)
+            KeyCode::Char('t') if self.tasks_visible => {
+                self.focused_panel = match self.focused_panel {
+                    PanelId::Timer => PanelId::Tasks,
+                    PanelId::Tasks => PanelId::Timer,
+                };
                 return;
             }
             // ? to toggle shortcuts bar visibility
@@ -52,45 +91,112 @@ impl App {
                 self.shortcuts_visible = !self.shortcuts_visible;
                 return;
             }
-            KeyCode::Tab => {
-                if key.modifiers.contains(KeyModifiers::SHIFT) {
-                    self.focus_previous();
-                } else {
-                    self.focus_next();
-                }
-                return;
-            }
-            KeyCode::BackTab => {
-                self.focus_previous();
-                return;
-            }
             _ => {}
         }
 
-        // Panel-specific keys
-        match self.focused_panel {
+        // Panel-specific keys (may consume Tab)
+        let consumed = match self.focused_panel {
             PanelId::Timer => self.handle_timer_key(key),
             PanelId::Tasks => {
-                let _ = self.tasks_panel.handle_key(key);
+                matches!(
+                    self.tasks_panel.handle_key(key, &mut self.task_manager),
+                    KeyHandleResult::Consumed
+                )
+            }
+        };
+
+        if consumed {
+            return;
+        }
+
+        // Handle sync key for tasks panel (after panel handling)
+        if self.focused_panel == PanelId::Tasks {
+            if let KeyCode::Char('s') | KeyCode::Char('S') = key.code {
+                self.sync_tasks();
+                return;
+            }
+        }
+
+        // Panel focus switching is handled by 't' key only
+    }
+
+    fn sync_tasks(&mut self) {
+        match self.task_manager.compute_sync_items() {
+            Ok(items) => {
+                self.sync_dialogue = Some(SyncDialogue { items, focused: 0 });
+                self.error_message = None;
+            }
+            Err(e) => {
+                self.error_message = Some(format!("Sync failed: {}", e));
             }
         }
     }
 
-    fn handle_timer_key(&mut self, key: KeyEvent) {
+    fn handle_sync_dialogue_key(&mut self, key: KeyEvent) {
+        let Some(dialogue) = self.sync_dialogue.as_mut() else {
+            return;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                self.sync_dialogue = None;
+            }
+            KeyCode::Char('j') => {
+                if !dialogue.items.is_empty() && dialogue.focused + 1 < dialogue.items.len() {
+                    dialogue.focused += 1;
+                }
+            }
+            KeyCode::Char('k') => {
+                if dialogue.focused > 0 {
+                    dialogue.focused -= 1;
+                }
+            }
+            KeyCode::Char(' ') => {
+                if let Some(item) = dialogue.items.get_mut(dialogue.focused) {
+                    item.resolution = SyncResolution::Incomplete;
+                }
+            }
+            KeyCode::Char('x') => {
+                if let Some(item) = dialogue.items.get_mut(dialogue.focused) {
+                    item.resolution = SyncResolution::Complete;
+                }
+            }
+            KeyCode::Char('d') => {
+                if let Some(item) = dialogue.items.get_mut(dialogue.focused) {
+                    item.resolution = SyncResolution::Remove;
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(dialogue) = self.sync_dialogue.take() {
+                    if let Err(e) = self.task_manager.apply_sync(&dialogue.items) {
+                        self.error_message = Some(format!("Sync failed: {}", e));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_timer_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Char(' ') => self.timer.toggle(),
             KeyCode::Char('r') | KeyCode::Char('R') => self.timer.reset(),
             KeyCode::Char('w') | KeyCode::Char('W') if self.timer.state == TimerState::Idle => {
                 self.timer.set_session_type(SessionType::Work);
             }
-            KeyCode::Char('s') | KeyCode::Char('S') if self.timer.state == TimerState::Idle => {
-                self.timer.set_session_type(SessionType::ShortBreak);
-            }
-            KeyCode::Char('l') | KeyCode::Char('L') if self.timer.state == TimerState::Idle => {
+            KeyCode::Char('b') | KeyCode::Char('B') if self.timer.state == TimerState::Idle => {
                 self.timer.set_session_type(SessionType::LongBreak);
+            }
+            KeyCode::Char('c') | KeyCode::Char('C') => {
+                self.task_manager.complete_active();
+            }
+            KeyCode::Tab | KeyCode::BackTab if self.timer.state == TimerState::Idle => {
+                self.timer.next_session_type();
+                return true; // Consumed Tab
             }
             _ => {}
         }
+        false
     }
 
     pub fn tick(&mut self) {
@@ -110,44 +216,10 @@ impl App {
 
     pub fn focused_shortcuts(&self) -> Vec<Shortcut> {
         match self.focused_panel {
-            PanelId::Timer => self.timer_panel.shortcuts(&self.timer),
+            PanelId::Timer => self
+                .timer_panel
+                .shortcuts(&self.timer, self.task_manager.active_task().is_some()),
             PanelId::Tasks => self.tasks_panel.shortcuts(),
-        }
-    }
-
-    fn focus_next(&mut self) {
-        let all_panels = PanelId::all();
-        let current_idx = all_panels
-            .iter()
-            .position(|&p| p == self.focused_panel)
-            .unwrap_or(0);
-
-        // Find next visible panel
-        for i in 1..=all_panels.len() {
-            let next_idx = (current_idx + i) % all_panels.len();
-            let panel_id = all_panels[next_idx];
-            if self.is_panel_visible(panel_id) {
-                self.focused_panel = panel_id;
-                return;
-            }
-        }
-    }
-
-    fn focus_previous(&mut self) {
-        let all_panels = PanelId::all();
-        let current_idx = all_panels
-            .iter()
-            .position(|&p| p == self.focused_panel)
-            .unwrap_or(0);
-
-        // Find previous visible panel
-        for i in 1..=all_panels.len() {
-            let prev_idx = (current_idx + all_panels.len() - i) % all_panels.len();
-            let panel_id = all_panels[prev_idx];
-            if self.is_panel_visible(panel_id) {
-                self.focused_panel = panel_id;
-                return;
-            }
         }
     }
 
@@ -160,13 +232,6 @@ impl App {
 
         if !self.tasks_visible && self.focused_panel == PanelId::Tasks {
             self.focused_panel = PanelId::Timer;
-        }
-    }
-
-    pub fn is_panel_visible(&self, id: PanelId) -> bool {
-        match id {
-            PanelId::Timer => self.two_columns || self.focused_panel == PanelId::Timer,
-            PanelId::Tasks => self.two_columns || self.focused_panel == PanelId::Tasks,
         }
     }
 

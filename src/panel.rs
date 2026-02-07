@@ -16,9 +16,3 @@ pub enum PanelId {
     Timer,
     Tasks,
 }
-
-impl PanelId {
-    pub fn all() -> &'static [PanelId] {
-        &[PanelId::Timer, PanelId::Tasks]
-    }
-}

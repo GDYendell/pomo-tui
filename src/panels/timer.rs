@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::digits::{render_time, render_wave, wave_position};
 use crate::panel::Shortcut;
+use crate::task::Task;
 use crate::timer::{SessionType, Timer, TimerState};
 
 pub struct TimerPanel {
@@ -21,7 +22,14 @@ impl Default for TimerPanel {
 }
 
 impl TimerPanel {
-    pub fn render(&self, frame: &mut Frame, area: Rect, focused: bool, timer: &Timer) {
+    pub fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        focused: bool,
+        timer: &Timer,
+        active_task: Option<&Task>,
+    ) {
         let border_color = if focused {
             Color::Cyan
         } else {
@@ -39,15 +47,15 @@ impl TimerPanel {
         // Split inner area: timer display at top, current task at bottom
         let chunks = Layout::vertical([
             Constraint::Min(10),   // Timer display (block digits need more space)
-            Constraint::Length(3), // Current task (single task)
+            Constraint::Length(4), // Current task (1 border + 3 content for vertical centering)
         ])
         .split(inner);
 
         self.render_timer_display(frame, chunks[0], timer);
-        self.render_current_task(frame, chunks[1]);
+        self.render_current_task(frame, chunks[1], active_task);
     }
 
-    pub fn shortcuts(&self, timer: &Timer) -> Vec<Shortcut> {
+    pub fn shortcuts(&self, timer: &Timer, has_active_task: bool) -> Vec<Shortcut> {
         let mut shortcuts = vec![
             Shortcut {
                 key: "Space",
@@ -62,8 +70,16 @@ impl TimerPanel {
         // Show mode switching shortcuts only when idle
         if timer.state == TimerState::Idle {
             shortcuts.push(Shortcut {
-                key: "W/S/L",
+                key: "Tab",
                 description: "Mode",
+            });
+        }
+
+        // Show complete task shortcut if there's an active task
+        if has_active_task {
+            shortcuts.push(Shortcut {
+                key: "C",
+                description: "Complete",
             });
         }
 
@@ -130,7 +146,7 @@ impl TimerPanel {
         frame.render_widget(paragraph, area);
     }
 
-    fn render_current_task(&self, frame: &mut Frame, area: Rect) {
+    fn render_current_task(&self, frame: &mut Frame, area: Rect, active_task: Option<&Task>) {
         let block = Block::default()
             .borders(Borders::TOP)
             .border_style(Style::default().fg(Color::DarkGray))
@@ -139,11 +155,25 @@ impl TimerPanel {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Placeholder for single current task (Phase 3)
-        let placeholder = Paragraph::new("No task selected")
-            .style(Style::default().fg(Color::DarkGray))
+        let (text, style) = match active_task {
+            Some(task) => (
+                task.text.as_str(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            None => ("No task selected", Style::default().fg(Color::DarkGray)),
+        };
+
+        // Center vertically
+        let centered = Layout::vertical([Constraint::Length(1)])
+            .flex(Flex::Center)
+            .split(inner)[0];
+
+        let paragraph = Paragraph::new(text)
+            .style(style)
             .alignment(Alignment::Center);
 
-        frame.render_widget(placeholder, inner);
+        frame.render_widget(paragraph, centered);
     }
 }

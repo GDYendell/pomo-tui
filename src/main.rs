@@ -3,10 +3,13 @@ mod audio;
 mod digits;
 mod panel;
 mod panels;
+mod task;
+mod task_manager;
 mod timer;
 mod ui;
 
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crossterm::{
@@ -19,6 +22,10 @@ use ratatui::prelude::*;
 use app::App;
 
 fn main() -> io::Result<()> {
+    // Parse CLI arguments
+    let args: Vec<String> = std::env::args().collect();
+    let task_file = args.get(1).map(PathBuf::from);
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -27,7 +34,7 @@ fn main() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Run the app
-    let result = run(&mut terminal);
+    let result = run(&mut terminal, task_file);
 
     // Restore terminal
     disable_raw_mode()?;
@@ -36,8 +43,8 @@ fn main() -> io::Result<()> {
     result
 }
 
-fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let mut app = App::default();
+fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, task_file: Option<PathBuf>) -> io::Result<()> {
+    let mut app = App::new(task_file);
     let tick_rate = Duration::from_millis(100);
 
     loop {
