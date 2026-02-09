@@ -1,12 +1,13 @@
 mod app;
 mod audio;
-mod digits;
-mod panel;
+mod fileio;
+mod overlays;
 mod panels;
 mod task;
 mod task_manager;
 mod timer;
 mod ui;
+mod util;
 
 use std::io;
 use std::path::PathBuf;

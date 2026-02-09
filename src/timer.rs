@@ -15,15 +15,15 @@ pub enum TimerState {
 }
 
 pub struct Timer {
-    pub state: TimerState,
-    pub session_type: SessionType,
-    pub remaining: Duration,
-    pub sessions_completed: u32,
+    state: TimerState,
+    session_type: SessionType,
+    remaining: Duration,
+    sessions_completed: u32,
     last_tick: Option<Instant>,
 
-    pub work_duration: Duration,
-    pub short_break_duration: Duration,
-    pub long_break_duration: Duration,
+    work_duration: Duration,
+    short_break_duration: Duration,
+    long_break_duration: Duration,
 }
 
 impl Default for Timer {
@@ -43,6 +43,18 @@ impl Default for Timer {
 }
 
 impl Timer {
+    pub fn session_type(&self) -> SessionType {
+        self.session_type
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.state == TimerState::Idle
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.state == TimerState::Running
+    }
+
     pub fn start(&mut self) {
         if self.state != TimerState::Running {
             self.state = TimerState::Running;

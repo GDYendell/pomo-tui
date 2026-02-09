@@ -9,6 +9,7 @@
 - [x] Reading from file should not clear current tasks (unless they are removed entirely by the read)
 - [x] Turn the help panel into an overlay like the sync dialogue
 - [x] (empty) should be centred in the tasks sections
+- [x] Keybind to complete in timer panel should be x to match tasks panel
 
 ## Features
 - [x] `s` opens a dialogue. The dialogue allows writing changes to file, or reading new tasks.
