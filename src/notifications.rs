@@ -1,7 +1,15 @@
+use std::process::Command;
 use std::time::Duration;
 
 use rodio::source::{SineWave, Source};
 use rodio::{OutputStream, OutputStreamHandle, Sink};
+
+pub fn send_notification(title: &str, message: &str) {
+    let _ = Command::new("notify-send")
+        .arg(title)
+        .arg(message)
+        .spawn();
+}
 
 pub struct AudioPlayer {
     _stream: OutputStream,

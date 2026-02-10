@@ -1,5 +1,5 @@
 mod app;
-mod audio;
+mod notifications;
 mod fileio;
 mod overlays;
 mod panels;

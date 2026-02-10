@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::audio::AudioPlayer;
+use crate::notifications::{send_notification, AudioPlayer};
 use crate::overlays::{SyncAction, SyncOverlay, TaskInputAction, TaskInputOverlay};
 use crate::panels::{KeyHandleResult, PanelId, TasksPanel, TimerPanel, TIMER_MIN_WIDTH};
 use crate::task::TaskSection;
@@ -63,6 +63,7 @@ impl App {
             if let Some(ref audio) = self.audio {
                 audio.play_notification();
             }
+            send_notification("Pomo-TUI", "Session completed!");
         }
 
         self.timer_panel.tick_animation();
