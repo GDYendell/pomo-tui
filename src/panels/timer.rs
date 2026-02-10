@@ -117,6 +117,10 @@ impl TimerPanel {
                 key: "Tab",
                 description: "Mode",
             });
+            shortcuts.push(Shortcut {
+                key: "+/-",
+                description: "Adjust Time",
+            });
         }
 
         if has_active_task {
@@ -158,6 +162,14 @@ impl TimerPanel {
             }
             KeyCode::Tab | KeyCode::BackTab if timer.is_idle() => {
                 timer.next_session_type();
+                KeyHandleResult::Consumed
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') if timer.is_idle() => {
+                timer.add_minute();
+                KeyHandleResult::Consumed
+            }
+            KeyCode::Char('-') | KeyCode::Char('_') if timer.is_idle() => {
+                timer.subtract_minute();
                 KeyHandleResult::Consumed
             }
             _ => KeyHandleResult::Ignored,

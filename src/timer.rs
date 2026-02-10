@@ -101,6 +101,18 @@ impl Timer {
         }
     }
 
+    pub fn add_minute(&mut self) {
+        if self.state == TimerState::Idle {
+            self.remaining += Duration::from_secs(60);
+        }
+    }
+
+    pub fn subtract_minute(&mut self) {
+        if self.state == TimerState::Idle && self.remaining > Duration::from_secs(60) {
+            self.remaining -= Duration::from_secs(60);
+        }
+    }
+
     /// Returns true if a session was completed during this tick
     pub fn tick(&mut self) -> bool {
         if self.state != TimerState::Running {
