@@ -13,7 +13,7 @@ pub fn render_error_overlay(frame: &mut Frame, message: &str) {
     let inner_width = overlay_width.saturating_sub(6) as usize;
 
     let msg_lines = if inner_width > 0 {
-        (message.len() + inner_width - 1) / inner_width
+        message.len().div_ceil(inner_width)
     } else {
         1
     };

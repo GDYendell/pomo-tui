@@ -13,7 +13,7 @@ pub fn send_notification(title: &str, message: &str) {
 
 pub struct AudioPlayer {
     _stream: OutputStream,
-    _stream_handle: OutputStreamHandle,
+    stream_handle: OutputStreamHandle,
 }
 
 impl AudioPlayer {
@@ -21,13 +21,13 @@ impl AudioPlayer {
         let (stream, stream_handle) = OutputStream::try_default().ok()?;
         Some(Self {
             _stream: stream,
-            _stream_handle: stream_handle,
+            stream_handle,
         })
     }
 
     pub fn play_notification(&self) {
         // Create a sink for playback
-        if let Ok(sink) = Sink::try_new(&self._stream_handle) {
+        if let Ok(sink) = Sink::try_new(&self.stream_handle) {
             // Generate a pleasant two-tone notification
             // First tone: 880 Hz (A5) for 150ms
             let tone1 = SineWave::new(880.0)

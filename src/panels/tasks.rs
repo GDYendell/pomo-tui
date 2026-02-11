@@ -49,7 +49,7 @@ impl Default for TasksPanel {
 }
 
 impl TasksPanel {
-    pub fn focused_section(&self) -> TaskSection {
+    pub const fn focused_section(&self) -> TaskSection {
         self.focus.section
     }
 
@@ -70,8 +70,8 @@ impl TasksPanel {
         let third = h / 3;
         let remainder = h % 3;
         // Distribute remainder: first section gets +1 if remainder >= 1, second if >= 2
-        let h0 = third + if remainder >= 1 { 1 } else { 0 };
-        let h1 = third + if remainder >= 2 { 1 } else { 0 };
+        let h0 = third + u16::from(remainder >= 1);
+        let h1 = third + u16::from(remainder >= 2);
         let h2 = h - h0 - h1;
         let chunks = Layout::vertical([
             Constraint::Length(h0),
@@ -278,7 +278,7 @@ impl TasksPanel {
         let block = Block::default()
             .borders(borders)
             .border_style(Style::default().fg(Color::DarkGray))
-            .title(format!(" {} ", title))
+            .title(format!(" {title} "))
             .title_style(title_style)
             .title_alignment(Alignment::Right);
 
@@ -326,7 +326,7 @@ impl TasksPanel {
             .saturating_sub(prefix_width)
             .saturating_sub(trailing_space);
 
-        let prefix = format!("{} ", checkbox);
+        let prefix = format!("{checkbox} ");
 
         let mut items: Vec<ListItem> = tasks
             .iter()
@@ -415,5 +415,5 @@ fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
             break;
         }
     }
-    format!("{}...", result)
+    format!("{result}...")
 }

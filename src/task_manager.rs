@@ -13,7 +13,7 @@ pub struct TaskManager {
 }
 
 impl TaskManager {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             file: None,
             backlog: Vec::new(),
@@ -167,7 +167,7 @@ impl TaskManager {
         &self.completed
     }
 
-    pub fn has_file_path(&self) -> bool {
+    pub const fn has_file_path(&self) -> bool {
         self.file.is_some()
     }
 
@@ -175,7 +175,7 @@ impl TaskManager {
         self.current.first()
     }
 
-    pub fn section_len(&self, section: TaskSection) -> usize {
+    pub const fn section_len(&self, section: TaskSection) -> usize {
         match section {
             TaskSection::Backlog => self.backlog.len(),
             TaskSection::Current => self.current.len(),

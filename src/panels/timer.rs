@@ -14,15 +14,11 @@ use crate::task_manager::TaskManager;
 use crate::timer::{SessionType, Timer};
 use crate::util::Shortcut;
 
+#[derive(Default)]
 pub struct TimerPanel {
     tick_count: u32,
 }
 
-impl Default for TimerPanel {
-    fn default() -> Self {
-        Self { tick_count: 0 }
-    }
-}
 
 const TIMER_MIN_HEIGHT: u16 = 11; // digits + wave + blank + label + blank
 const BOTTOM_BORDER: u16 = 1; // Borders::TOP
@@ -70,10 +66,7 @@ impl TimerPanel {
 
         // Calculate bottom section height based on wrapped text
         let text_area_width = (inner.width as usize).saturating_sub(4); // 2 cols padding each side
-        let text = match active_task {
-            Some(task) => task.text.as_str(),
-            None => "No task selected",
-        };
+        let text = active_task.map_or("No task selected", |task| task.text.as_str());
         let wrapped_lines = if text_area_width > 0 {
             wrap_line_count(text, text_area_width)
         } else {
@@ -96,7 +89,7 @@ impl TimerPanel {
             ])
             .split(inner);
             self.render_timer_display(frame, chunks[0], timer);
-            self.render_current_task(frame, chunks[1], active_task);
+            Self::render_current_task(frame, chunks[1], active_task);
         }
     }
 
@@ -144,19 +137,19 @@ impl TimerPanel {
                 timer.toggle();
                 KeyHandleResult::Consumed
             }
-            KeyCode::Char('r') | KeyCode::Char('R') => {
+            KeyCode::Char('r' | 'R') => {
                 timer.reset();
                 KeyHandleResult::Consumed
             }
-            KeyCode::Char('w') | KeyCode::Char('W') if timer.is_idle() => {
+            KeyCode::Char('w' | 'W') if timer.is_idle() => {
                 timer.set_session_type(SessionType::Work);
                 KeyHandleResult::Consumed
             }
-            KeyCode::Char('b') | KeyCode::Char('B') if timer.is_idle() => {
+            KeyCode::Char('b' | 'B') if timer.is_idle() => {
                 timer.set_session_type(SessionType::LongBreak);
                 KeyHandleResult::Consumed
             }
-            KeyCode::Char('x') | KeyCode::Char('X') => {
+            KeyCode::Char('x' | 'X') => {
                 task_manager.complete_active();
                 KeyHandleResult::Consumed
             }
@@ -164,11 +157,11 @@ impl TimerPanel {
                 timer.next_session_type();
                 KeyHandleResult::Consumed
             }
-            KeyCode::Char('+') | KeyCode::Char('=') if timer.is_idle() => {
+            KeyCode::Char('+' | '=') if timer.is_idle() => {
                 timer.add_minute();
                 KeyHandleResult::Consumed
             }
-            KeyCode::Char('-') | KeyCode::Char('_') if timer.is_idle() => {
+            KeyCode::Char('-' | '_') if timer.is_idle() => {
                 timer.subtract_minute();
                 KeyHandleResult::Consumed
             }
@@ -251,7 +244,7 @@ impl TimerPanel {
         }
     }
 
-    fn render_current_task(&self, frame: &mut Frame, area: Rect, active_task: Option<&Task>) {
+    fn render_current_task(frame: &mut Frame, area: Rect, active_task: Option<&Task>) {
         let block = Block::default()
             .borders(Borders::TOP)
             .border_style(Style::default().fg(Color::DarkGray))
@@ -264,15 +257,17 @@ impl TimerPanel {
             return;
         }
 
-        let (text, style) = match active_task {
-            Some(task) => (
-                task.text.as_str(),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            None => ("No task selected", Style::default().fg(Color::DarkGray)),
-        };
+        let (text, style) = active_task.map_or_else(
+            || ("No task selected", Style::default().fg(Color::DarkGray)),
+            |task| {
+                (
+                    task.text.as_str(),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )
+            },
+        );
 
         // 1 row pad top, text, 1 row pad bottom — with 2 cols padding each side
         let text_area = Rect::new(
@@ -295,7 +290,7 @@ impl TimerPanel {
     }
 }
 
-fn session_color(session_type: SessionType) -> Color {
+const fn session_color(session_type: SessionType) -> Color {
     match session_type {
         SessionType::Work => Color::Red,
         SessionType::ShortBreak => Color::Green,
@@ -326,7 +321,7 @@ fn wrap_line_count(text: &str, width: usize) -> usize {
 
 // -- Block digits --
 
-fn digit_lines(d: u8) -> [&'static str; 5] {
+const fn digit_lines(d: u8) -> [&'static str; 5] {
     DIGITS[d as usize % 10]
 }
 
@@ -362,24 +357,28 @@ fn render_wave(position: Option<usize>) -> String {
     const SMALL: char = '·';
     const DOT_SPACING: &str = " ";
 
-    match position {
-        Some(pos) => (0..5)
-            .map(|i| if i == pos { LARGE } else { SMALL })
-            .collect::<Vec<_>>()
-            .iter()
-            .map(|c| c.to_string())
-            .collect::<Vec<_>>()
-            .join(DOT_SPACING),
-        None => vec![SMALL; 5]
-            .iter()
-            .map(|c| c.to_string())
-            .collect::<Vec<_>>()
-            .join(DOT_SPACING),
-    }
+    position.map_or_else(
+        || {
+            [SMALL; 5]
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(DOT_SPACING)
+        },
+        |pos| {
+            (0..5)
+                .map(|i| if i == pos { LARGE } else { SMALL })
+                .collect::<Vec<_>>()
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(DOT_SPACING)
+        },
+    )
 }
 
 /// Calculate wave position from tick count (bounces back and forth)
-fn wave_position(tick_count: u32) -> usize {
+const fn wave_position(tick_count: u32) -> usize {
     let tick = (tick_count % 8) as usize;
     if tick < 5 {
         tick

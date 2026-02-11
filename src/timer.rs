@@ -43,7 +43,7 @@ impl Default for Timer {
 }
 
 impl Timer {
-    pub fn session_type(&self) -> SessionType {
+    pub const fn session_type(&self) -> SessionType {
         self.session_type
     }
 
@@ -127,9 +127,8 @@ impl Timer {
                 self.remaining = Duration::ZERO;
                 self.complete_session();
                 return true;
-            } else {
-                self.remaining -= elapsed;
             }
+            self.remaining -= elapsed;
         }
         false
     }
@@ -138,7 +137,7 @@ impl Timer {
         match self.session_type {
             SessionType::Work => {
                 self.sessions_completed += 1;
-                if self.sessions_completed % 4 == 0 {
+                if self.sessions_completed.is_multiple_of(4) {
                     self.session_type = SessionType::LongBreak;
                 } else {
                     self.session_type = SessionType::ShortBreak;
@@ -153,7 +152,7 @@ impl Timer {
         self.last_tick = None;
     }
 
-    fn duration_for_session(&self, session: SessionType) -> Duration {
+    const fn duration_for_session(&self, session: SessionType) -> Duration {
         match session {
             SessionType::Work => self.work_duration,
             SessionType::ShortBreak => self.short_break_duration,
@@ -161,11 +160,11 @@ impl Timer {
         }
     }
 
-    pub fn minutes(&self) -> u64 {
+    pub const fn minutes(&self) -> u64 {
         self.remaining.as_secs() / 60
     }
 
-    pub fn seconds(&self) -> u64 {
+    pub const fn seconds(&self) -> u64 {
         self.remaining.as_secs() % 60
     }
 }

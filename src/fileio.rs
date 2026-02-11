@@ -17,7 +17,7 @@ pub struct TaskFile {
 }
 
 impl TaskFile {
-    /// Load and parse a task file. Returns the TaskFile handle and parsed tasks.
+    /// Load and parse a task file. Returns the `TaskFile` handle and parsed tasks.
     pub fn load(path: PathBuf) -> Result<(Self, ParsedTasks), io::Error> {
         let content = fs::read_to_string(&path)?;
         let original_lines: Vec<String> = content.lines().map(String::from).collect();

@@ -28,16 +28,15 @@ pub struct App {
 
 impl App {
     pub fn new(task_file: Option<PathBuf>) -> Self {
-        let (task_manager, error_message) = match task_file {
-            Some(path) => match TaskManager::load(path) {
-                Ok(tm) => (tm, None),
-                Err(e) => (
-                    TaskManager::new(),
-                    Some(format!("Failed to load tasks: {}", e)),
-                ),
+        let (task_manager, error_message) = task_file.map_or_else(
+            || (TaskManager::new(), None),
+            |path| {
+                TaskManager::load(path).map_or_else(
+                    |e| (TaskManager::new(), Some(format!("Failed to load tasks: {e}"))),
+                    |tm| (tm, None),
+                )
             },
-            None => (TaskManager::new(), None),
-        };
+        );
 
         Self {
             should_quit: false,
@@ -90,7 +89,7 @@ impl App {
                 self.error_message = None;
             }
             Err(e) => {
-                self.error_message = Some(format!("Sync failed: {}", e));
+                self.error_message = Some(format!("Sync failed: {e}"));
             }
         }
     }
@@ -146,7 +145,7 @@ impl App {
                 }
                 SyncAction::Apply(items) => {
                     if let Err(e) = self.task_manager.apply_sync(&items) {
-                        self.error_message = Some(format!("Sync failed: {}", e));
+                        self.error_message = Some(format!("Sync failed: {e}"));
                     }
                     self.tasks_panel.clamp_focus(&self.task_manager);
                     self.sync_overlay = None;
@@ -166,7 +165,7 @@ impl App {
 
         // Global shortcuts first
         match key.code {
-            KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+            KeyCode::Char('q' | 'Q') | KeyCode::Esc => {
                 self.should_quit = true;
                 return;
             }
@@ -189,7 +188,7 @@ impl App {
         }
 
         if self.focused_panel == PanelId::Tasks {
-            if let KeyCode::Char('s') | KeyCode::Char('S') = key.code {
+            if let KeyCode::Char('s' | 'S') = key.code {
                 self.sync_tasks();
                 return;
             }
@@ -201,8 +200,7 @@ impl App {
                     .handle_key(key, &mut self.timer, &mut self.task_manager);
             }
             PanelId::Tasks => {
-                if let KeyHandleResult::AddTask =
-                    self.tasks_panel.handle_key(key, &mut self.task_manager)
+                if self.tasks_panel.handle_key(key, &mut self.task_manager) == KeyHandleResult::AddTask
                 {
                     let section = self.tasks_panel.focused_section();
                     if section != TaskSection::Completed {

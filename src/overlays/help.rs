@@ -13,7 +13,7 @@ pub fn render_help_overlay(frame: &mut Frame, panel_name: &str, shortcuts: &[Sho
     lines.push(Line::from(""));
 
     lines.push(Line::from(Span::styled(
-        format!("  {} Panel", panel_name),
+        format!("  {panel_name} Panel"),
         Style::default().fg(Color::White),
     )));
 

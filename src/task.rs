@@ -11,7 +11,7 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn new(text: String) -> Self {
+    pub const fn new(text: String) -> Self {
         Self { text }
     }
 }

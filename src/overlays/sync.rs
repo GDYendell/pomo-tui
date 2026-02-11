@@ -33,7 +33,7 @@ pub struct SyncOverlay {
 }
 
 impl SyncOverlay {
-    pub fn new(items: Vec<SyncItem>) -> Self {
+    pub const fn new(items: Vec<SyncItem>) -> Self {
         Self { items, focused: 0 }
     }
 
@@ -113,7 +113,7 @@ impl SyncOverlay {
                 lines.push(Line::from(vec![
                     Span::raw("  "),
                     Span::styled(prefix, prefix_style),
-                    Span::styled(format!("{} ", checkbox), Style::default().fg(color)),
+                    Span::styled(format!("{checkbox} "), Style::default().fg(color)),
                     Span::styled(&item.text, text_style),
                 ]));
             }

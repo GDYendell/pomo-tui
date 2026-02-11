@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-pub fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+pub const fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     Rect::new(x, y, width, height)
@@ -26,7 +26,7 @@ pub fn render_overlay_frame(frame: &mut Frame, area: Rect, title: &str, color: C
 pub fn shortcut_line(key: &str, description: &str) -> Line<'static> {
     Line::from(vec![
         Span::raw("    "),
-        Span::styled(format!("[{}]", key), Style::default().fg(Color::Yellow)),
-        Span::raw(format!(" {}", description)),
+        Span::styled(format!("[{key}]"), Style::default().fg(Color::Yellow)),
+        Span::raw(format!(" {description}")),
     ])
 }

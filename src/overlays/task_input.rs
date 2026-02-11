@@ -23,7 +23,7 @@ pub struct TaskInputOverlay {
 }
 
 impl TaskInputOverlay {
-    pub fn new(section: TaskSection) -> Self {
+    pub const fn new(section: TaskSection) -> Self {
         Self {
             text: String::new(),
             cursor: 0,
@@ -102,11 +102,7 @@ impl TaskInputOverlay {
         };
         let available_width = input_area.width as usize;
 
-        let scroll = if self.cursor > available_width {
-            self.cursor - available_width
-        } else {
-            0
-        };
+        let scroll = self.cursor.saturating_sub(available_width);
         let visible_text: String = self
             .text
             .chars()

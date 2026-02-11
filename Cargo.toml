@@ -7,3 +7,17 @@ edition = "2021"
 ratatui = "0.29"
 crossterm = "0.28"
 rodio = "0.19"
+
+[lints.clippy]
+# Pedantic lints for better code quality
+pedantic = { level = "warn", priority = -1 }
+# Disable some overly strict pedantic lints
+missing_const_for_fn = "allow"      # Many methods are never intended to be called const
+cast_possible_truncation = "allow"  # TUI dimensions won't exceed u16/u8 limits
+struct_excessive_bools = "allow"    # App state bools are clear and not truly related
+unused_self = "allow"               # Some methods are part of panel interface patterns
+
+# Additional useful lints
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
