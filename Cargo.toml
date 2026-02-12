@@ -2,6 +2,8 @@
 name = "pomo-tui"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+authors = ["Gary Yendell"]
 
 [dependencies]
 ratatui = "0.29"
