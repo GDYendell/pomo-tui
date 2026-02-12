@@ -4,9 +4,22 @@ use std::time::Duration;
 use rodio::source::{SineWave, Source};
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 
-/// Send text notification via notify-send
-pub fn send_notification(title: &str, message: &str) {
-    let _ = Command::new("notify-send").arg(title).arg(message).spawn();
+/// Send text notification via notify-send, returning any error message
+pub fn send_notification(title: &str, message: &str) -> Option<String> {
+    match Command::new("notify-send")
+        .arg(title)
+        .arg(message)
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .output()
+    {
+        Ok(output) if !output.status.success() => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Some(stderr.trim().to_string())
+        }
+        Err(e) => Some(format!("Failed to run notify-send: {e}")),
+        _ => None,
+    }
 }
 
 /// Play audio notifications using rodio for session completion alerts
