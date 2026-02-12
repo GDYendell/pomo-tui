@@ -247,4 +247,11 @@ impl TaskManager {
             self.completed.push(task);
         }
     }
+
+    pub fn delete_task(&mut self, section: TaskSection, index: usize) {
+        let tasks = self.section_tasks(section);
+        if index < tasks.len() {
+            tasks.remove(index);
+        }
+    }
 }

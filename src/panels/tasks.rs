@@ -166,6 +166,11 @@ impl TasksPanel {
                 KeyHandleResult::Consumed
             }
             KeyCode::Char('a') => KeyHandleResult::AddTask,
+            KeyCode::Char('d') => {
+                task_manager.delete_task(self.focus.section, self.focus.index);
+                self.clamp_focus(task_manager);
+                KeyHandleResult::Consumed
+            }
             _ => KeyHandleResult::Ignored,
         }
     }
@@ -195,6 +200,10 @@ impl TasksPanel {
             Shortcut {
                 key: "a",
                 description: "Add",
+            },
+            Shortcut {
+                key: "d",
+                description: "Delete",
             },
             Shortcut {
                 key: "s",
