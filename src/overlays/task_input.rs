@@ -16,9 +16,13 @@ pub enum TaskInputAction {
     Submit { text: String, section: TaskSection },
 }
 
+/// Overlay for adding new tasks
 pub struct TaskInputOverlay {
+    /// Text description of task
     pub text: String,
+    /// Character position in text
     pub cursor: usize,
+    /// Section the task being edited is in
     pub section: TaskSection,
 }
 

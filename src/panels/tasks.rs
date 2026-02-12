@@ -18,6 +18,7 @@ const SECTIONS: [(TaskSection, &str, &str, bool); 3] = [
     (TaskSection::Completed, "Completed", "[x]", false),
 ];
 
+/// Current focus position within the tasks panel (section and index)
 #[derive(Debug, Clone)]
 struct TaskFocus {
     section: TaskSection,
@@ -33,6 +34,7 @@ impl Default for TaskFocus {
     }
 }
 
+/// Tasks panel displaying backlog, current, and completed task sections
 pub struct TasksPanel {
     focus: TaskFocus,
     /// Visible task rows per section (updated during render)
@@ -148,12 +150,12 @@ impl TasksPanel {
                 KeyHandleResult::Consumed
             }
             KeyCode::Enter => {
-                task_manager.toggle_section(self.focus.section, self.focus.index);
+                task_manager.cycle_task_section(self.focus.section, self.focus.index);
                 self.clamp_focus(task_manager);
                 KeyHandleResult::Consumed
             }
             KeyCode::Char('x') => {
-                task_manager.complete_focused(self.focus.section, self.focus.index);
+                task_manager.toggle_completion(self.focus.section, self.focus.index);
                 self.clamp_focus(task_manager);
                 KeyHandleResult::Consumed
             }
@@ -214,6 +216,11 @@ impl TasksPanel {
 
     // -- Focus/navigation methods --
 
+    /// Clamp the focus index to a valid position within the current section
+    ///
+    /// If the focus index is beyond the section's length (e.g., after tasks are deleted or when
+    /// cycling to a section with fewer tasks), it will be adjusted to the last valid index. If the
+    /// section is empty, the index will be clamped to 0.
     pub fn clamp_focus(&mut self, task_manager: &TaskManager) {
         let len = task_manager.section_len(self.focus.section);
         if self.focus.index >= len {
@@ -326,7 +333,7 @@ impl TasksPanel {
         // Reserve last row for ellipsis indicator
         let visible_height = total_height.saturating_sub(1);
 
-        let scroll_offset = scroll_offset(tasks.len(), visible_height, focused_index);
+        let scroll_offset = calculate_scroll_offset(tasks.len(), visible_height, focused_index);
         let has_more_below = scroll_offset + visible_height < tasks.len();
 
         let prefix_width = 6; // "> [x] " or "  [x] "
@@ -383,7 +390,8 @@ impl TasksPanel {
     }
 }
 
-fn scroll_offset(total: usize, visible: usize, focused: Option<usize>) -> usize {
+/// Calculates scroll offset to keep focused item within margin from edges
+fn calculate_scroll_offset(total: usize, visible: usize, focused: Option<usize>) -> usize {
     let Some(cursor) = focused else { return 0 };
     if visible == 0 {
         return 0;
@@ -464,31 +472,31 @@ mod tests {
     #[test]
     fn test_scroll_offset() {
         // No focus returns 0
-        assert_eq!(scroll_offset(10, 5, None), 0);
+        assert_eq!(calculate_scroll_offset(10, 5, None), 0);
 
         // All items fit in view, no scroll needed
-        assert_eq!(scroll_offset(5, 10, Some(0)), 0);
-        assert_eq!(scroll_offset(5, 10, Some(4)), 0);
+        assert_eq!(calculate_scroll_offset(5, 10, Some(0)), 0);
+        assert_eq!(calculate_scroll_offset(5, 10, Some(4)), 0);
 
         // Cursor at top stays at offset 0
-        assert_eq!(scroll_offset(20, 10, Some(0)), 0);
+        assert_eq!(calculate_scroll_offset(20, 10, Some(0)), 0);
 
         // Cursor near top with margin=2, still at offset 0
-        assert_eq!(scroll_offset(20, 10, Some(2)), 0);
+        assert_eq!(calculate_scroll_offset(20, 10, Some(2)), 0);
 
         // Cursor moves down: index 10, visible=10, margin=2
         // min_offset_for_cursor = 10 - (10 - 2 - 1) = 3
-        assert_eq!(scroll_offset(20, 10, Some(10)), 3);
+        assert_eq!(calculate_scroll_offset(20, 10, Some(10)), 3);
 
         // Cursor at bottom (index 19), visible=10
-        assert_eq!(scroll_offset(20, 10, Some(19)), 10);
+        assert_eq!(calculate_scroll_offset(20, 10, Some(19)), 10);
 
         // Respects max offset
-        assert_eq!(scroll_offset(10, 10, Some(15)), 0);
-        assert_eq!(scroll_offset(15, 10, Some(20)), 5);
+        assert_eq!(calculate_scroll_offset(10, 10, Some(15)), 0);
+        assert_eq!(calculate_scroll_offset(15, 10, Some(20)), 5);
 
         // Zero visible height
-        assert_eq!(scroll_offset(10, 0, Some(5)), 0);
+        assert_eq!(calculate_scroll_offset(10, 0, Some(5)), 0);
     }
 
     #[test]

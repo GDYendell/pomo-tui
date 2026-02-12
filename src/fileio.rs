@@ -17,7 +17,9 @@ pub struct TaskFile {
 }
 
 impl TaskFile {
-    /// Load and parse a task file. Returns the `TaskFile` handle and parsed tasks.
+    /// Load and parse a task file
+    ///
+    /// Returns the `TaskFile` handle and parsed tasks.
     pub fn load(path: PathBuf) -> Result<(Self, ParsedTasks), io::Error> {
         let content = fs::read_to_string(&path)?;
         let original_lines: Vec<String> = content.lines().map(String::from).collect();
@@ -31,14 +33,14 @@ impl TaskFile {
         ))
     }
 
-    /// Re-read the task file from disk and return parsed tasks.
+    /// Re-read the task file from disk and return parsed tasks
     pub fn read_tasks(&self) -> Result<ParsedTasks, io::Error> {
         let content = fs::read_to_string(&self.path)?;
         let lines: Vec<String> = content.lines().map(String::from).collect();
         Ok(parse_task_lines(&lines))
     }
 
-    /// Write resolved sync items back to the file.
+    /// Apply sync item resolutions to the file, preserving indentation and line order
     pub fn write_sync(&mut self, items: &[SyncItem]) -> Result<(), io::Error> {
         let content = fs::read_to_string(&self.path)?;
         let mut file_lines: Vec<String> = content.lines().map(String::from).collect();
@@ -84,7 +86,7 @@ impl TaskFile {
     }
 }
 
-/// Parse markdown task lines into incomplete and complete text vectors.
+/// Parse markdown task lines into incomplete and complete text vectors
 fn parse_task_lines(lines: &[String]) -> ParsedTasks {
     let mut incomplete = Vec::new();
     let mut complete = Vec::new();
@@ -111,6 +113,7 @@ fn parse_task_lines(lines: &[String]) -> ParsedTasks {
     }
 }
 
+/// Find the line index of a task, skipping already-used lines to handle duplicates
 fn find_line_index(task_text: &str, file_lines: &[String], used_lines: &[usize]) -> Option<usize> {
     for (idx, line) in file_lines.iter().enumerate() {
         if used_lines.contains(&idx) {

@@ -14,8 +14,10 @@ use crate::task_manager::TaskManager;
 use crate::timer::{SessionType, Timer};
 use crate::util::Shortcut;
 
+/// Timer panel displaying countdown, session type, and current task
 #[derive(Default)]
 pub struct TimerPanel {
+    /// Animation frame counter
     tick_count: u32,
 }
 
@@ -68,7 +70,7 @@ impl TimerPanel {
         let text_area_width = (inner.width as usize).saturating_sub(4); // 2 cols padding each side
         let text = active_task.map_or("No task selected", |task| task.text.as_str());
         let wrapped_lines = if text_area_width > 0 {
-            wrap_line_count(text, text_area_width)
+            count_wrapped_lines(text, text_area_width)
         } else {
             1
         };
@@ -150,11 +152,11 @@ impl TimerPanel {
                 KeyHandleResult::Consumed
             }
             KeyCode::Char('x' | 'X') => {
-                task_manager.complete_active();
+                task_manager.complete_current_task();
                 KeyHandleResult::Consumed
             }
             KeyCode::Tab | KeyCode::BackTab if timer.is_idle() => {
-                timer.next_session_type();
+                timer.cycle_session_type();
                 KeyHandleResult::Consumed
             }
             KeyCode::Char('+' | '=') if timer.is_idle() => {
@@ -169,8 +171,8 @@ impl TimerPanel {
         }
     }
 
-    /// Update animation tick counter without ticking the timer
-    pub fn tick_animation(&mut self) {
+    /// Increment the frame counter for the wave animation
+    pub fn next_animation_frame(&mut self) {
         self.tick_count = self.tick_count.wrapping_add(1);
     }
 
@@ -298,8 +300,8 @@ const fn session_color(session_type: SessionType) -> Color {
     }
 }
 
-/// Count how many lines text will wrap to at the given width.
-fn wrap_line_count(text: &str, width: usize) -> usize {
+/// Count how many lines the text will occupy when word-wrapped at given width
+fn count_wrapped_lines(text: &str, width: usize) -> usize {
     if text.is_empty() || width == 0 {
         return 1;
     }

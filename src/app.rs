@@ -10,20 +10,26 @@ use crate::task_manager::TaskManager;
 use crate::timer::Timer;
 use crate::util::Shortcut;
 
+/// Main application state coordinating timer, tasks, panels, and overlays
 pub struct App {
-    pub should_quit: bool,
+    audio: Option<AudioPlayer>,
     pub timer: Timer,
+    pub focused_panel: PanelId,
     pub timer_panel: TimerPanel,
     pub tasks_panel: TasksPanel,
     pub task_manager: TaskManager,
-    pub focused_panel: PanelId,
-    pub tasks_visible: bool,
-    pub shortcuts_visible: bool,
-    pub two_columns: bool,
-    pub error_message: Option<String>,
-    pub sync_overlay: Option<SyncOverlay>,
     pub task_input_overlay: Option<TaskInputOverlay>,
-    audio: Option<AudioPlayer>,
+    pub sync_overlay: Option<SyncOverlay>,
+    /// Error message displayed in overlay, if Some
+    pub error_message: Option<String>,
+    /// Whether the shortcuts
+    pub shortcuts_visible: bool,
+    /// Whether the tasks panel is visible
+    pub tasks_visible: bool,
+    /// Whether in two column or single column layout
+    pub two_columns: bool,
+    /// Flag to trigger application exit
+    pub should_quit: bool,
 }
 
 impl App {
@@ -55,6 +61,7 @@ impl App {
         }
     }
 
+    /// Ticks the timer countdown and animation counter, notifying on session completion
     pub fn tick(&mut self) {
         let session_completed = self.timer.tick();
 
@@ -65,7 +72,7 @@ impl App {
             send_notification("Pomo-TUI", "Session completed!");
         }
 
-        self.timer_panel.tick_animation();
+        self.timer_panel.next_animation_frame();
     }
 
     pub fn focused_shortcuts(&self) -> Vec<Shortcut> {
@@ -106,8 +113,8 @@ impl App {
         }
     }
 
-    /// Called before render to update layout state based on terminal width
-    pub fn update_layout(&mut self, width: u16) {
+    /// Compute the column layout based on terminal width
+    pub fn compute_column_layout(&mut self, width: u16) {
         self.two_columns = self.tasks_visible && (width / 2) >= TIMER_MIN_WIDTH;
     }
 
@@ -252,20 +259,20 @@ mod tests {
         };
 
         // Width below threshold: single column
-        app.update_layout(TIMER_MIN_WIDTH * 2 - 1);
+        app.compute_column_layout(TIMER_MIN_WIDTH * 2 - 1);
         assert!(!app.two_columns);
 
         // Width at threshold: two columns
-        app.update_layout(TIMER_MIN_WIDTH * 2);
+        app.compute_column_layout(TIMER_MIN_WIDTH * 2);
         assert!(app.two_columns);
 
         // Width above threshold: two columns
-        app.update_layout(TIMER_MIN_WIDTH * 2 + 10);
+        app.compute_column_layout(TIMER_MIN_WIDTH * 2 + 10);
         assert!(app.two_columns);
 
         // Tasks hidden: always single column
         app.tasks_visible = false;
-        app.update_layout(TIMER_MIN_WIDTH * 2 + 100);
+        app.compute_column_layout(TIMER_MIN_WIDTH * 2 + 100);
         assert!(!app.two_columns);
     }
 }

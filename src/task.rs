@@ -5,6 +5,7 @@ pub enum TaskSection {
     Completed,
 }
 
+/// A single task with a text description
 #[derive(Debug, Clone)]
 pub struct Task {
     pub text: String,

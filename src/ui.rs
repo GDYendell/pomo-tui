@@ -7,6 +7,7 @@ use crate::app::App;
 use crate::overlays;
 use crate::panels::{PanelId, TIMER_MIN_WIDTH};
 
+/// Layout regions for timer and tasks panels
 pub struct AppLayout {
     pub timer: Option<Rect>,
     pub tasks: Option<Rect>,

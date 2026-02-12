@@ -15,6 +15,7 @@ pub enum SyncResolution {
     Remove,
 }
 
+/// A task item to sync with desired resolution (incomplete/complete/remove)
 #[derive(Debug, Clone)]
 pub struct SyncItem {
     pub text: String,
@@ -27,6 +28,7 @@ pub enum SyncAction {
     Apply(Vec<SyncItem>),
 }
 
+/// Overlay for reviewing and applying task file sync changes
 pub struct SyncOverlay {
     pub items: Vec<SyncItem>,
     pub focused: usize,

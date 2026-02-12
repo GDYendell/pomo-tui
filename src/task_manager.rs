@@ -5,6 +5,7 @@ use crate::fileio::TaskFile;
 use crate::overlays::{SyncItem, SyncResolution};
 use crate::task::{Task, TaskSection};
 
+/// Manages tasks across three sections (backlog, current, completed) with optional file sync.
 pub struct TaskManager {
     file: Option<TaskFile>,
     backlog: Vec<Task>,
@@ -32,6 +33,7 @@ impl TaskManager {
         })
     }
 
+    /// Compute diff between app state and file, returning sync items needing resolution
     pub fn compute_sync_items(&self) -> Result<Vec<SyncItem>, io::Error> {
         let Some(ref file) = self.file else {
             return Ok(Vec::new());
@@ -116,6 +118,7 @@ impl TaskManager {
         Ok(items)
     }
 
+    /// Apply sync resolutions to both app state and task file
     pub fn apply_sync(&mut self, items: &[SyncItem]) -> Result<(), io::Error> {
         // Apply to app state
         for item in items {
@@ -205,7 +208,8 @@ impl TaskManager {
         }
     }
 
-    pub fn toggle_section(&mut self, section: TaskSection, index: usize) {
+    /// Move task at index in section to other section (backlog ↔ current).
+    pub fn cycle_task_section(&mut self, section: TaskSection, index: usize) {
         match section {
             TaskSection::Backlog => {
                 if index < self.backlog.len() {
@@ -223,7 +227,8 @@ impl TaskManager {
         }
     }
 
-    pub fn complete_focused(&mut self, section: TaskSection, index: usize) {
+    /// Toggle completion status of focused task (current → completed, or completed → backlog)
+    pub fn toggle_completion(&mut self, section: TaskSection, index: usize) {
         match section {
             TaskSection::Current => {
                 if index < self.current.len() {
@@ -241,7 +246,8 @@ impl TaskManager {
         }
     }
 
-    pub fn complete_active(&mut self) {
+    /// Complete the current task (the first task in the current section)
+    pub fn complete_current_task(&mut self) {
         if !self.current.is_empty() {
             let task = self.current.remove(0);
             self.completed.push(task);
@@ -292,14 +298,14 @@ mod tests {
         tm.add_task("Task 2".to_string(), TaskSection::Backlog);
 
         // Backlog → Current
-        tm.toggle_section(TaskSection::Backlog, 0);
+        tm.cycle_task_section(TaskSection::Backlog, 0);
         assert_eq!(tm.section_len(TaskSection::Backlog), 1);
         assert_eq!(tm.section_len(TaskSection::Current), 1);
         assert_eq!(tm.backlog()[0].text, "Task 2");
         assert_eq!(tm.current()[0].text, "Task 1");
 
         // Current → Backlog
-        tm.toggle_section(TaskSection::Current, 0);
+        tm.cycle_task_section(TaskSection::Current, 0);
         assert_eq!(tm.section_len(TaskSection::Current), 0);
         assert_eq!(tm.section_len(TaskSection::Backlog), 2);
         assert_eq!(tm.backlog()[0].text, "Task 2");
@@ -313,20 +319,20 @@ mod tests {
         tm.add_task("Task 2".to_string(), TaskSection::Current);
 
         // Complete focused from current → completed
-        tm.complete_focused(TaskSection::Current, 0);
+        tm.toggle_completion(TaskSection::Current, 0);
         assert_eq!(tm.section_len(TaskSection::Current), 1);
         assert_eq!(tm.section_len(TaskSection::Completed), 1);
         assert_eq!(tm.current()[0].text, "Task 2");
         assert_eq!(tm.completed()[0].text, "Task 1");
 
         // Complete active (first in current)
-        tm.complete_active();
+        tm.complete_current_task();
         assert_eq!(tm.section_len(TaskSection::Current), 0);
         assert_eq!(tm.section_len(TaskSection::Completed), 2);
         assert_eq!(tm.completed()[1].text, "Task 2");
 
         // Un-complete: completed → backlog
-        tm.complete_focused(TaskSection::Completed, 0);
+        tm.toggle_completion(TaskSection::Completed, 0);
         assert_eq!(tm.section_len(TaskSection::Completed), 1);
         assert_eq!(tm.section_len(TaskSection::Backlog), 1);
         assert_eq!(tm.backlog()[0].text, "Task 1");

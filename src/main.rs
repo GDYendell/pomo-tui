@@ -55,7 +55,7 @@ fn run(
 
     loop {
         let size = terminal.size()?;
-        app.update_layout(size.width);
+        app.compute_column_layout(size.width);
         terminal.draw(|frame| ui::render(frame, &mut app))?;
 
         if event::poll(tick_rate)? {

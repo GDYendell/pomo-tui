@@ -4,6 +4,7 @@ use std::time::Duration;
 use rodio::source::{SineWave, Source};
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 
+/// Send text notification via notify-send
 pub fn send_notification(title: &str, message: &str) {
     let _ = Command::new("notify-send")
         .arg(title)
@@ -11,6 +12,7 @@ pub fn send_notification(title: &str, message: &str) {
         .spawn();
 }
 
+/// Play audio notifications using rodio for session completion alerts
 pub struct AudioPlayer {
     _stream: OutputStream,
     stream_handle: OutputStreamHandle,

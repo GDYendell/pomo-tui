@@ -14,11 +14,14 @@ pub enum TimerState {
     Paused,
 }
 
+/// Pomodoro timer with work/break sessions and configurable durations
 pub struct Timer {
     state: TimerState,
     session_type: SessionType,
     remaining: Duration,
+    /// Completed work sessions
     sessions_completed: u32,
+    /// Time of last tick - None when paused/idle, Some when running
     last_tick: Option<Instant>,
 
     work_duration: Duration,
@@ -89,7 +92,8 @@ impl Timer {
         }
     }
 
-    pub fn next_session_type(&mut self) {
+    /// Cycle to the next session type (work → short break → long break → work)
+    pub fn cycle_session_type(&mut self) {
         if self.state == TimerState::Idle {
             let next = match self.session_type {
                 SessionType::Work => SessionType::ShortBreak,
@@ -113,7 +117,7 @@ impl Timer {
         }
     }
 
-    /// Returns true if a session was completed during this tick
+    /// Decrement timer and return true if a session was completed
     pub fn tick(&mut self) -> bool {
         if self.state != TimerState::Running {
             return false;
@@ -133,6 +137,7 @@ impl Timer {
         false
     }
 
+    /// Complete current session and transition to next session type
     fn complete_session(&mut self) {
         match self.session_type {
             SessionType::Work => {
@@ -275,13 +280,13 @@ mod tests {
         let mut timer = Timer::default();
         assert_eq!(timer.session_type, SessionType::Work);
 
-        timer.next_session_type();
+        timer.cycle_session_type();
         assert_eq!(timer.session_type, SessionType::ShortBreak);
 
-        timer.next_session_type();
+        timer.cycle_session_type();
         assert_eq!(timer.session_type, SessionType::LongBreak);
 
-        timer.next_session_type();
+        timer.cycle_session_type();
         assert_eq!(timer.session_type, SessionType::Work);
     }
 
