@@ -6,10 +6,7 @@ use rodio::{OutputStream, OutputStreamHandle, Sink};
 
 /// Send text notification via notify-send
 pub fn send_notification(title: &str, message: &str) {
-    let _ = Command::new("notify-send")
-        .arg(title)
-        .arg(message)
-        .spawn();
+    let _ = Command::new("notify-send").arg(title).arg(message).spawn();
 }
 
 /// Play audio notifications using rodio for session completion alerts

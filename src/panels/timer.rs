@@ -21,7 +21,6 @@ pub struct TimerPanel {
     tick_count: u32,
 }
 
-
 const TIMER_MIN_HEIGHT: u16 = 11; // digits + wave + blank + label + blank
 const BOTTOM_BORDER: u16 = 1; // Borders::TOP
 const BOTTOM_PAD: u16 = 2; // 1 row above + 1 row below text

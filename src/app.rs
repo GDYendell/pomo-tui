@@ -38,7 +38,12 @@ impl App {
             || (TaskManager::new(), None),
             |path| {
                 TaskManager::load(path).map_or_else(
-                    |e| (TaskManager::new(), Some(format!("Failed to load tasks: {e}"))),
+                    |e| {
+                        (
+                            TaskManager::new(),
+                            Some(format!("Failed to load tasks: {e}")),
+                        )
+                    },
                     |tm| (tm, None),
                 )
             },
@@ -204,7 +209,8 @@ impl App {
                     .handle_key(key, &mut self.timer, &mut self.task_manager);
             }
             PanelId::Tasks => {
-                if self.tasks_panel.handle_key(key, &mut self.task_manager) == KeyHandleResult::AddTask
+                if self.tasks_panel.handle_key(key, &mut self.task_manager)
+                    == KeyHandleResult::AddTask
                 {
                     let section = self.tasks_panel.focused_section();
                     if section != TaskSection::Completed {

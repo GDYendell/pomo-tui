@@ -344,10 +344,16 @@ mod tests {
         assert!(tm.active_task().is_none());
 
         tm.add_task("Task 1".to_string(), TaskSection::Current);
-        assert_eq!(tm.active_task().map(|t| &t.text), Some(&"Task 1".to_string()));
+        assert_eq!(
+            tm.active_task().map(|t| &t.text),
+            Some(&"Task 1".to_string())
+        );
 
         tm.add_task("Task 2".to_string(), TaskSection::Current);
-        assert_eq!(tm.active_task().map(|t| &t.text), Some(&"Task 1".to_string()));
+        assert_eq!(
+            tm.active_task().map(|t| &t.text),
+            Some(&"Task 1".to_string())
+        );
     }
 
     #[test]

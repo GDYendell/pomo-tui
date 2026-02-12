@@ -653,10 +653,7 @@ mod tests {
         // Delete from Backlog
         panel.focus.section = TaskSection::Backlog;
         panel.focus.index = 0;
-        panel.handle_key(
-            KeyEvent::from(KeyCode::Char('d')),
-            &mut tm,
-        );
+        panel.handle_key(KeyEvent::from(KeyCode::Char('d')), &mut tm);
         assert_eq!(tm.section_len(TaskSection::Backlog), 1);
         assert_eq!(tm.backlog()[0].text, "Backlog 2");
         assert_eq!(panel.focus.index, 0);
@@ -664,10 +661,7 @@ mod tests {
         // Delete from Current
         panel.focus.section = TaskSection::Current;
         panel.focus.index = 1;
-        panel.handle_key(
-            KeyEvent::from(KeyCode::Char('d')),
-            &mut tm,
-        );
+        panel.handle_key(KeyEvent::from(KeyCode::Char('d')), &mut tm);
         assert_eq!(tm.section_len(TaskSection::Current), 1);
         assert_eq!(tm.current()[0].text, "Current 1");
         assert_eq!(panel.focus.index, 0); // Clamped after deletion
@@ -675,10 +669,7 @@ mod tests {
         // Delete from Completed
         panel.focus.section = TaskSection::Completed;
         panel.focus.index = 0;
-        panel.handle_key(
-            KeyEvent::from(KeyCode::Char('d')),
-            &mut tm,
-        );
+        panel.handle_key(KeyEvent::from(KeyCode::Char('d')), &mut tm);
         assert_eq!(tm.section_len(TaskSection::Completed), 1);
         assert_eq!(tm.completed()[0].text, "Completed 2");
         assert_eq!(panel.focus.index, 0);

@@ -1,6 +1,6 @@
 mod app;
-mod notifications;
 mod fileio;
+mod notifications;
 mod overlays;
 mod panels;
 mod task;
