@@ -426,3 +426,253 @@ fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
     }
     format!("{result}...")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_with_ellipsis() {
+        // No truncation needed
+        assert_eq!(truncate_with_ellipsis("Hello", 10), "Hello");
+        assert_eq!(truncate_with_ellipsis("Hello world", 11), "Hello world");
+        assert_eq!(truncate_with_ellipsis("Hello", 5), "Hello");
+
+        // Basic truncation
+        assert_eq!(truncate_with_ellipsis("Hello world", 8), "Hello...");
+        assert_eq!(truncate_with_ellipsis("This is a test", 10), "This is...");
+
+        // Word boundary (should not split words)
+        assert_eq!(truncate_with_ellipsis("Hello world test", 12), "Hello...");
+        assert_eq!(
+            truncate_with_ellipsis("One two three four five", 15),
+            "One two..."
+        );
+
+        // Long single word (too long to fit)
+        assert_eq!(
+            truncate_with_ellipsis("Supercalifragilisticexpialidocious", 10),
+            "..."
+        );
+
+        // Very small widths
+        assert_eq!(truncate_with_ellipsis("Hello", 1), ".");
+        assert_eq!(truncate_with_ellipsis("Hello", 2), "..");
+        assert_eq!(truncate_with_ellipsis("Hello", 3), "...");
+    }
+
+    #[test]
+    fn test_scroll_offset() {
+        // No focus returns 0
+        assert_eq!(scroll_offset(10, 5, None), 0);
+
+        // All items fit in view, no scroll needed
+        assert_eq!(scroll_offset(5, 10, Some(0)), 0);
+        assert_eq!(scroll_offset(5, 10, Some(4)), 0);
+
+        // Cursor at top stays at offset 0
+        assert_eq!(scroll_offset(20, 10, Some(0)), 0);
+
+        // Cursor near top with margin=2, still at offset 0
+        assert_eq!(scroll_offset(20, 10, Some(2)), 0);
+
+        // Cursor moves down: index 10, visible=10, margin=2
+        // min_offset_for_cursor = 10 - (10 - 2 - 1) = 3
+        assert_eq!(scroll_offset(20, 10, Some(10)), 3);
+
+        // Cursor at bottom (index 19), visible=10
+        assert_eq!(scroll_offset(20, 10, Some(19)), 10);
+
+        // Respects max offset
+        assert_eq!(scroll_offset(10, 10, Some(15)), 0);
+        assert_eq!(scroll_offset(15, 10, Some(20)), 5);
+
+        // Zero visible height
+        assert_eq!(scroll_offset(10, 0, Some(5)), 0);
+    }
+
+    #[test]
+    fn test_tasks_panel_default_focus() {
+        let panel = TasksPanel::default();
+        assert_eq!(panel.focus.section, TaskSection::Backlog);
+        assert_eq!(panel.focus.index, 0);
+    }
+
+    #[test]
+    fn test_move_up_down_navigation() {
+        let mut panel = TasksPanel::default();
+        let mut tm = TaskManager::new();
+        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 2".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 3".to_string(), TaskSection::Backlog);
+
+        // Move down
+        assert_eq!(panel.focus.index, 0);
+        panel.move_down(&tm);
+        assert_eq!(panel.focus.index, 1);
+        panel.move_down(&tm);
+        assert_eq!(panel.focus.index, 2);
+
+        // Should not go beyond last item
+        panel.move_down(&tm);
+        assert_eq!(panel.focus.index, 2);
+
+        // Move up
+        panel.move_up();
+        assert_eq!(panel.focus.index, 1);
+        panel.move_up();
+        assert_eq!(panel.focus.index, 0);
+
+        // Should not go below 0
+        panel.move_up();
+        assert_eq!(panel.focus.index, 0);
+    }
+
+    #[test]
+    fn test_page_up_down_navigation() {
+        let mut panel = TasksPanel {
+            section_page_size: 5,
+            ..Default::default()
+        };
+        let mut tm = TaskManager::new();
+        for i in 0..20 {
+            tm.add_task(format!("Task {i}"), TaskSection::Backlog);
+        }
+
+        // Page down
+        assert_eq!(panel.focus.index, 0);
+        panel.page_down(&tm);
+        assert_eq!(panel.focus.index, 5);
+        panel.page_down(&tm);
+        assert_eq!(panel.focus.index, 10);
+
+        // Should clamp to last item
+        panel.page_down(&tm);
+        panel.page_down(&tm);
+        assert_eq!(panel.focus.index, 19);
+
+        // Page up
+        panel.page_up();
+        assert_eq!(panel.focus.index, 14);
+        panel.page_up();
+        assert_eq!(panel.focus.index, 9);
+        panel.page_up();
+        assert_eq!(panel.focus.index, 4);
+
+        // Jump to near beginning and page up to boundary
+        panel.focus.index = 2;
+        panel.page_up();
+        assert_eq!(panel.focus.index, 0);
+
+        // Should not go negative
+        panel.page_up();
+        assert_eq!(panel.focus.index, 0);
+    }
+
+    #[test]
+    fn test_section_navigation() {
+        let mut panel = TasksPanel::default();
+        let tm = TaskManager::new();
+
+        // Next section cycling
+        assert_eq!(panel.focus.section, TaskSection::Backlog);
+        panel.next_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Current);
+        panel.next_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Completed);
+        panel.next_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Backlog);
+
+        // Previous section cycling
+        panel.prev_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Completed);
+        panel.prev_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Current);
+        panel.prev_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Backlog);
+    }
+
+    #[test]
+    fn test_focus_clamping() {
+        let mut panel = TasksPanel::default();
+        let mut tm = TaskManager::new();
+
+        // Clamp in empty section
+        panel.focus.index = 5;
+        panel.clamp_focus(&tm);
+        assert_eq!(panel.focus.index, 0); // Clamped to 0 when section is empty
+
+        // Clamp with items present
+        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 2".to_string(), TaskSection::Backlog);
+        panel.focus.index = 5;
+        panel.clamp_focus(&tm);
+        assert_eq!(panel.focus.index, 1); // Clamped to last item (index 1)
+
+        // No clamp when already valid
+        panel.focus.index = 1;
+        panel.clamp_focus(&tm);
+        assert_eq!(panel.focus.index, 1); // No change
+
+        // Section switching auto-clamps focus
+        for i in 0..5 {
+            tm.add_task(format!("Backlog {i}"), TaskSection::Backlog);
+        }
+        tm.add_task("Current 1".to_string(), TaskSection::Current);
+        tm.add_task("Current 2".to_string(), TaskSection::Current);
+
+        panel.focus.index = 4; // Last item in backlog (now has 7 items)
+        panel.next_section(&tm); // Switch to Current
+
+        // Index should be clamped to 1 (last item in Current)
+        assert_eq!(panel.focus.section, TaskSection::Current);
+        assert_eq!(panel.focus.index, 1);
+    }
+
+    #[test]
+    fn test_delete_task_from_any_section() {
+        let mut panel = TasksPanel::default();
+        let mut tm = TaskManager::new();
+
+        // Add tasks to all sections
+        tm.add_task("Backlog 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Backlog 2".to_string(), TaskSection::Backlog);
+        tm.add_task("Current 1".to_string(), TaskSection::Current);
+        tm.add_task("Current 2".to_string(), TaskSection::Current);
+        tm.add_task("Completed 1".to_string(), TaskSection::Completed);
+        tm.add_task("Completed 2".to_string(), TaskSection::Completed);
+
+        // Delete from Backlog
+        panel.focus.section = TaskSection::Backlog;
+        panel.focus.index = 0;
+        panel.handle_key(
+            KeyEvent::from(KeyCode::Char('d')),
+            &mut tm,
+        );
+        assert_eq!(tm.section_len(TaskSection::Backlog), 1);
+        assert_eq!(tm.backlog()[0].text, "Backlog 2");
+        assert_eq!(panel.focus.index, 0);
+
+        // Delete from Current
+        panel.focus.section = TaskSection::Current;
+        panel.focus.index = 1;
+        panel.handle_key(
+            KeyEvent::from(KeyCode::Char('d')),
+            &mut tm,
+        );
+        assert_eq!(tm.section_len(TaskSection::Current), 1);
+        assert_eq!(tm.current()[0].text, "Current 1");
+        assert_eq!(panel.focus.index, 0); // Clamped after deletion
+
+        // Delete from Completed
+        panel.focus.section = TaskSection::Completed;
+        panel.focus.index = 0;
+        panel.handle_key(
+            KeyEvent::from(KeyCode::Char('d')),
+            &mut tm,
+        );
+        assert_eq!(tm.section_len(TaskSection::Completed), 1);
+        assert_eq!(tm.completed()[0].text, "Completed 2");
+        assert_eq!(panel.focus.index, 0);
+    }
+}

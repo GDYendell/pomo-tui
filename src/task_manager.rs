@@ -255,3 +255,177 @@ impl TaskManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_task_manager() {
+        let tm = TaskManager::new();
+        assert_eq!(tm.backlog().len(), 0);
+        assert_eq!(tm.current().len(), 0);
+        assert_eq!(tm.completed().len(), 0);
+        assert!(!tm.has_file_path());
+    }
+
+    #[test]
+    fn test_add_task_to_sections() {
+        let mut tm = TaskManager::new();
+
+        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 2".to_string(), TaskSection::Current);
+        tm.add_task("Task 3".to_string(), TaskSection::Completed);
+
+        assert_eq!(tm.section_len(TaskSection::Backlog), 1);
+        assert_eq!(tm.section_len(TaskSection::Current), 1);
+        assert_eq!(tm.section_len(TaskSection::Completed), 1);
+        assert_eq!(tm.backlog()[0].text, "Task 1");
+        assert_eq!(tm.current()[0].text, "Task 2");
+        assert_eq!(tm.completed()[0].text, "Task 3");
+    }
+
+    #[test]
+    fn test_toggle_section() {
+        let mut tm = TaskManager::new();
+        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 2".to_string(), TaskSection::Backlog);
+
+        // Backlog → Current
+        tm.toggle_section(TaskSection::Backlog, 0);
+        assert_eq!(tm.section_len(TaskSection::Backlog), 1);
+        assert_eq!(tm.section_len(TaskSection::Current), 1);
+        assert_eq!(tm.backlog()[0].text, "Task 2");
+        assert_eq!(tm.current()[0].text, "Task 1");
+
+        // Current → Backlog
+        tm.toggle_section(TaskSection::Current, 0);
+        assert_eq!(tm.section_len(TaskSection::Current), 0);
+        assert_eq!(tm.section_len(TaskSection::Backlog), 2);
+        assert_eq!(tm.backlog()[0].text, "Task 2");
+        assert_eq!(tm.backlog()[1].text, "Task 1");
+    }
+
+    #[test]
+    fn test_task_completion() {
+        let mut tm = TaskManager::new();
+        tm.add_task("Task 1".to_string(), TaskSection::Current);
+        tm.add_task("Task 2".to_string(), TaskSection::Current);
+
+        // Complete focused from current → completed
+        tm.complete_focused(TaskSection::Current, 0);
+        assert_eq!(tm.section_len(TaskSection::Current), 1);
+        assert_eq!(tm.section_len(TaskSection::Completed), 1);
+        assert_eq!(tm.current()[0].text, "Task 2");
+        assert_eq!(tm.completed()[0].text, "Task 1");
+
+        // Complete active (first in current)
+        tm.complete_active();
+        assert_eq!(tm.section_len(TaskSection::Current), 0);
+        assert_eq!(tm.section_len(TaskSection::Completed), 2);
+        assert_eq!(tm.completed()[1].text, "Task 2");
+
+        // Un-complete: completed → backlog
+        tm.complete_focused(TaskSection::Completed, 0);
+        assert_eq!(tm.section_len(TaskSection::Completed), 1);
+        assert_eq!(tm.section_len(TaskSection::Backlog), 1);
+        assert_eq!(tm.backlog()[0].text, "Task 1");
+    }
+
+    #[test]
+    fn test_active_task() {
+        let mut tm = TaskManager::new();
+        assert!(tm.active_task().is_none());
+
+        tm.add_task("Task 1".to_string(), TaskSection::Current);
+        assert_eq!(tm.active_task().map(|t| &t.text), Some(&"Task 1".to_string()));
+
+        tm.add_task("Task 2".to_string(), TaskSection::Current);
+        assert_eq!(tm.active_task().map(|t| &t.text), Some(&"Task 1".to_string()));
+    }
+
+    #[test]
+    fn test_reorder_tasks() {
+        let mut tm = TaskManager::new();
+        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 2".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 3".to_string(), TaskSection::Backlog);
+
+        // Reorder down (swap 0 and 1)
+        tm.reorder_down(TaskSection::Backlog, 0);
+        assert_eq!(tm.backlog()[0].text, "Task 2");
+        assert_eq!(tm.backlog()[1].text, "Task 1");
+        assert_eq!(tm.backlog()[2].text, "Task 3");
+
+        // Reorder up (swap 1 and 2)
+        tm.reorder_up(TaskSection::Backlog, 2);
+        assert_eq!(tm.backlog()[0].text, "Task 2");
+        assert_eq!(tm.backlog()[1].text, "Task 3");
+        assert_eq!(tm.backlog()[2].text, "Task 1");
+
+        // Try to move first item up (should do nothing)
+        tm.reorder_up(TaskSection::Backlog, 0);
+        assert_eq!(tm.backlog()[0].text, "Task 2");
+
+        // Try to move last item down (should do nothing)
+        tm.reorder_down(TaskSection::Backlog, 2);
+        assert_eq!(tm.backlog()[2].text, "Task 1");
+    }
+
+    #[test]
+    fn test_delete_task_from_backlog() {
+        let mut tm = TaskManager::new();
+        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 2".to_string(), TaskSection::Backlog);
+        tm.add_task("Task 3".to_string(), TaskSection::Backlog);
+
+        tm.delete_task(TaskSection::Backlog, 1);
+        assert_eq!(tm.section_len(TaskSection::Backlog), 2);
+        assert_eq!(tm.backlog()[0].text, "Task 1");
+        assert_eq!(tm.backlog()[1].text, "Task 3");
+    }
+
+    #[test]
+    fn test_delete_task_from_current() {
+        let mut tm = TaskManager::new();
+        tm.add_task("Task 1".to_string(), TaskSection::Current);
+        tm.add_task("Task 2".to_string(), TaskSection::Current);
+
+        tm.delete_task(TaskSection::Current, 0);
+        assert_eq!(tm.section_len(TaskSection::Current), 1);
+        assert_eq!(tm.current()[0].text, "Task 2");
+    }
+
+    #[test]
+    fn test_delete_task_from_completed() {
+        let mut tm = TaskManager::new();
+        tm.add_task("Task 1".to_string(), TaskSection::Completed);
+        tm.add_task("Task 2".to_string(), TaskSection::Completed);
+        tm.add_task("Task 3".to_string(), TaskSection::Completed);
+
+        tm.delete_task(TaskSection::Completed, 2);
+        assert_eq!(tm.section_len(TaskSection::Completed), 2);
+        assert_eq!(tm.completed()[0].text, "Task 1");
+        assert_eq!(tm.completed()[1].text, "Task 2");
+    }
+
+    #[test]
+    fn test_delete_task_invalid_index() {
+        let mut tm = TaskManager::new();
+        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
+
+        // Try to delete with invalid index (should do nothing)
+        tm.delete_task(TaskSection::Backlog, 5);
+        assert_eq!(tm.section_len(TaskSection::Backlog), 1);
+        assert_eq!(tm.backlog()[0].text, "Task 1");
+    }
+
+    #[test]
+    fn test_delete_from_empty_section() {
+        let mut tm = TaskManager::new();
+
+        // Try to delete from empty section (should do nothing)
+        tm.delete_task(TaskSection::Backlog, 0);
+        assert_eq!(tm.section_len(TaskSection::Backlog), 0);
+    }
+}

@@ -110,10 +110,7 @@ impl App {
     pub fn update_layout(&mut self, width: u16) {
         self.two_columns = self.tasks_visible && (width / 2) >= TIMER_MIN_WIDTH;
     }
-}
 
-/// Keybindings
-impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
         // Intercept if error overlay is active
         if self.error_message.is_some() {
@@ -209,5 +206,66 @@ impl App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_toggle_tasks_visibility() {
+        let mut app = App::new(None);
+        app.tasks_visible = false;
+        app.two_columns = false;
+        app.focused_panel = PanelId::Timer;
+
+        // Single-column mode: showing tasks switches focus to Tasks
+        app.toggle_tasks_visibility();
+        assert!(app.tasks_visible);
+        assert_eq!(app.focused_panel, PanelId::Tasks);
+
+        // Hiding tasks switches focus to Timer
+        app.toggle_tasks_visibility();
+        assert!(!app.tasks_visible);
+        assert_eq!(app.focused_panel, PanelId::Timer);
+
+        // Two-column mode: showing tasks keeps focus on Timer
+        app.two_columns = true;
+        app.toggle_tasks_visibility();
+        assert!(app.tasks_visible);
+        assert_eq!(app.focused_panel, PanelId::Timer);
+
+        // Switch focus to Tasks, then hide while focused on Tasks
+        app.focused_panel = PanelId::Tasks;
+        app.toggle_tasks_visibility();
+        assert!(!app.tasks_visible);
+        assert_eq!(app.focused_panel, PanelId::Timer);
+    }
+
+    #[test]
+    fn test_update_layout_two_column_threshold() {
+        let mut app = App {
+            tasks_visible: true,
+            two_columns: false,
+            ..App::new(None)
+        };
+
+        // Width below threshold: single column
+        app.update_layout(TIMER_MIN_WIDTH * 2 - 1);
+        assert!(!app.two_columns);
+
+        // Width at threshold: two columns
+        app.update_layout(TIMER_MIN_WIDTH * 2);
+        assert!(app.two_columns);
+
+        // Width above threshold: two columns
+        app.update_layout(TIMER_MIN_WIDTH * 2 + 10);
+        assert!(app.two_columns);
+
+        // Tasks hidden: always single column
+        app.tasks_visible = false;
+        app.update_layout(TIMER_MIN_WIDTH * 2 + 100);
+        assert!(!app.two_columns);
     }
 }

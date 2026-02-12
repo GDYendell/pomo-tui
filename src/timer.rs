@@ -168,3 +168,179 @@ impl Timer {
         self.remaining.as_secs() % 60
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_timer_starts_in_idle() {
+        let timer = Timer::default();
+        assert_eq!(timer.state, TimerState::Idle);
+        assert_eq!(timer.session_type, SessionType::Work);
+        assert_eq!(timer.sessions_completed, 0);
+        assert_eq!(timer.minutes(), 25);
+    }
+
+    #[test]
+    fn test_start_pause_resume() {
+        let mut timer = Timer::default();
+
+        timer.start();
+        assert_eq!(timer.state, TimerState::Running);
+        assert!(timer.is_running());
+        assert!(!timer.is_idle());
+
+        timer.pause();
+        assert_eq!(timer.state, TimerState::Paused);
+        assert!(!timer.is_running());
+
+        timer.start();
+        assert_eq!(timer.state, TimerState::Running);
+        assert!(timer.is_running());
+    }
+
+    #[test]
+    fn test_toggle_states() {
+        let mut timer = Timer::default();
+
+        timer.toggle();
+        assert_eq!(timer.state, TimerState::Running);
+
+        timer.toggle();
+        assert_eq!(timer.state, TimerState::Paused);
+
+        timer.toggle();
+        assert_eq!(timer.state, TimerState::Running);
+    }
+
+    #[test]
+    fn test_reset_clears_state() {
+        let mut timer = Timer::default();
+        timer.start();
+        timer.reset();
+        assert_eq!(timer.state, TimerState::Idle);
+        assert_eq!(timer.minutes(), 25);
+        assert_eq!(timer.remaining, Duration::from_secs(25 * 60));
+    }
+
+    #[test]
+    fn test_time_adjustment() {
+        let mut timer = Timer::default();
+        assert_eq!(timer.minutes(), 25);
+
+        // Add minute
+        timer.add_minute();
+        assert_eq!(timer.minutes(), 26);
+
+        // Subtract minute
+        timer.subtract_minute();
+        assert_eq!(timer.minutes(), 25);
+    }
+
+    #[test]
+    fn test_subtract_minute_minimum() {
+        let mut timer = Timer {
+            remaining: Duration::from_secs(60),
+            ..Default::default()
+        };
+        timer.subtract_minute();
+        // Should not go below 1 minute
+        assert_eq!(timer.remaining, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_cannot_adjust_time_when_running() {
+        let mut timer = Timer::default();
+        timer.start();
+        let initial = timer.remaining;
+        timer.add_minute();
+        assert_eq!(timer.remaining, initial); // No change
+    }
+
+    #[test]
+    fn test_set_session_type_only_when_idle() {
+        let mut timer = Timer::default();
+        timer.set_session_type(SessionType::ShortBreak);
+        assert_eq!(timer.session_type, SessionType::ShortBreak);
+        assert_eq!(timer.minutes(), 5);
+
+        timer.start();
+        timer.set_session_type(SessionType::Work);
+        assert_eq!(timer.session_type, SessionType::ShortBreak); // Unchanged
+    }
+
+    #[test]
+    fn test_next_session_type_cycles() {
+        let mut timer = Timer::default();
+        assert_eq!(timer.session_type, SessionType::Work);
+
+        timer.next_session_type();
+        assert_eq!(timer.session_type, SessionType::ShortBreak);
+
+        timer.next_session_type();
+        assert_eq!(timer.session_type, SessionType::LongBreak);
+
+        timer.next_session_type();
+        assert_eq!(timer.session_type, SessionType::Work);
+    }
+
+    #[test]
+    fn test_tick_when_paused_does_nothing() {
+        let mut timer = Timer::default();
+        timer.start();
+        timer.pause();
+        let initial = timer.remaining;
+        std::thread::sleep(Duration::from_millis(100));
+        let completed = timer.tick();
+        assert!(!completed);
+        assert_eq!(timer.remaining, initial);
+    }
+
+    #[test]
+    fn test_session_completion_flow() {
+        let mut timer = Timer::default();
+
+        // Complete work session → short break
+        timer.start();
+        timer.remaining = Duration::from_secs(1);
+        std::thread::sleep(Duration::from_millis(1100));
+        let completed = timer.tick();
+        assert!(completed);
+        assert_eq!(timer.state, TimerState::Idle);
+        assert_eq!(timer.session_type, SessionType::ShortBreak);
+        assert_eq!(timer.sessions_completed, 1);
+        assert_eq!(timer.minutes(), 5);
+
+        // Complete short break → work
+        timer.start();
+        timer.remaining = Duration::from_secs(1);
+        std::thread::sleep(Duration::from_millis(1100));
+        timer.tick();
+        assert_eq!(timer.session_type, SessionType::Work);
+        assert_eq!(timer.minutes(), 25);
+
+        // Complete 2 more work+break cycles (sessions 2-3)
+        for _ in 0..2 {
+            timer.start();
+            timer.remaining = Duration::from_secs(1);
+            std::thread::sleep(Duration::from_millis(1100));
+            timer.tick();
+            assert_eq!(timer.session_type, SessionType::ShortBreak);
+            timer.start();
+            timer.remaining = Duration::from_secs(1);
+            std::thread::sleep(Duration::from_millis(1100));
+            timer.tick();
+        }
+        assert_eq!(timer.sessions_completed, 3);
+
+        // 4th work session → long break
+        timer.start();
+        timer.remaining = Duration::from_secs(1);
+        std::thread::sleep(Duration::from_millis(1100));
+        timer.tick();
+        assert_eq!(timer.sessions_completed, 4);
+        assert_eq!(timer.session_type, SessionType::LongBreak);
+        assert_eq!(timer.minutes(), 15);
+    }
+}

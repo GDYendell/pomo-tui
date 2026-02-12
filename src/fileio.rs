@@ -132,3 +132,276 @@ fn find_line_index(task_text: &str, file_lines: &[String], used_lines: &[usize])
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_parse_task_lines_empty() {
+        let lines = vec![];
+        let parsed = parse_task_lines(&lines);
+        assert_eq!(parsed.incomplete.len(), 0);
+        assert_eq!(parsed.complete.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_task_lines_mixed() {
+        let lines = vec![
+            "# Tasks".to_string(),
+            "- [ ] Incomplete task 1".to_string(),
+            "- [x] Complete task 1".to_string(),
+            "- [ ] Incomplete task 2".to_string(),
+            "- [X] Complete task 2".to_string(), // Capital X
+            "Some random text".to_string(),
+            "  - [ ] Indented incomplete".to_string(),
+            "  - [x] Indented complete".to_string(),
+        ];
+        let parsed = parse_task_lines(&lines);
+        assert_eq!(parsed.incomplete.len(), 3);
+        assert_eq!(parsed.complete.len(), 3);
+        assert_eq!(parsed.incomplete[0], "Incomplete task 1");
+        assert_eq!(parsed.incomplete[1], "Incomplete task 2");
+        assert_eq!(parsed.incomplete[2], "Indented incomplete");
+        assert_eq!(parsed.complete[0], "Complete task 1");
+        assert_eq!(parsed.complete[1], "Complete task 2");
+        assert_eq!(parsed.complete[2], "Indented complete");
+    }
+
+    #[test]
+    fn test_parse_task_lines_ignores_empty() {
+        let lines = vec![
+            "- [ ] ".to_string(), // Empty task
+            "- [x] ".to_string(), // Empty task
+            "- [ ] Valid task".to_string(),
+        ];
+        let parsed = parse_task_lines(&lines);
+        assert_eq!(parsed.incomplete.len(), 1);
+        assert_eq!(parsed.complete.len(), 0);
+        assert_eq!(parsed.incomplete[0], "Valid task");
+    }
+
+    #[test]
+    fn test_find_line_index() {
+        let lines = vec![
+            "# Header".to_string(),
+            "- [ ] Task 1".to_string(),
+            "- [x] Task 2".to_string(),
+            "- [ ] Task 3".to_string(),
+        ];
+
+        // Find incomplete task
+        assert_eq!(find_line_index("Task 1", &lines, &[]), Some(1));
+
+        // Find complete task
+        assert_eq!(find_line_index("Task 2", &lines, &[]), Some(2));
+
+        // Task not found
+        assert_eq!(find_line_index("Nonexistent", &lines, &[]), None);
+
+        // Task already used
+        assert_eq!(find_line_index("Task 1", &lines, &[1]), None);
+    }
+
+    #[test]
+    fn test_task_file_load() -> Result<(), io::Error> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("test_tasks.md");
+
+        let content = "# Tasks\n- [ ] Task 1\n- [x] Task 2\n- [ ] Task 3";
+        fs::write(&file_path, content)?;
+
+        let (task_file, parsed) = TaskFile::load(file_path.clone())?;
+        assert_eq!(task_file.path, file_path);
+        assert_eq!(parsed.incomplete.len(), 2);
+        assert_eq!(parsed.complete.len(), 1);
+        assert_eq!(parsed.incomplete[0], "Task 1");
+        assert_eq!(parsed.complete[0], "Task 2");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_task_file_read_tasks() -> Result<(), io::Error> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("test_tasks.md");
+
+        let content = "- [ ] Initial task";
+        fs::write(&file_path, content)?;
+
+        let (task_file, _) = TaskFile::load(file_path.clone())?;
+
+        // Modify file on disk
+        let new_content = "- [ ] Initial task\n- [x] New completed task";
+        fs::write(&file_path, new_content)?;
+
+        let parsed = task_file.read_tasks()?;
+        assert_eq!(parsed.incomplete.len(), 1);
+        assert_eq!(parsed.complete.len(), 1);
+        assert_eq!(parsed.complete[0], "New completed task");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_sync_mark_complete() -> Result<(), io::Error> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("test_tasks.md");
+
+        let content = "- [ ] Task 1\n- [ ] Task 2";
+        fs::write(&file_path, content)?;
+
+        let (mut task_file, _) = TaskFile::load(file_path.clone())?;
+
+        let sync_items = vec![SyncItem {
+            text: "Task 1".to_string(),
+            resolution: SyncResolution::Complete,
+        }];
+
+        task_file.write_sync(&sync_items)?;
+
+        let result = fs::read_to_string(&file_path)?;
+        assert!(result.contains("- [x] Task 1"));
+        assert!(result.contains("- [ ] Task 2"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_sync_mark_incomplete() -> Result<(), io::Error> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("test_tasks.md");
+
+        let content = "- [x] Task 1\n- [ ] Task 2";
+        fs::write(&file_path, content)?;
+
+        let (mut task_file, _) = TaskFile::load(file_path.clone())?;
+
+        let sync_items = vec![SyncItem {
+            text: "Task 1".to_string(),
+            resolution: SyncResolution::Incomplete,
+        }];
+
+        task_file.write_sync(&sync_items)?;
+
+        let result = fs::read_to_string(&file_path)?;
+        assert!(result.contains("- [ ] Task 1"));
+        assert!(result.contains("- [ ] Task 2"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_sync_add_new_task() -> Result<(), io::Error> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("test_tasks.md");
+
+        let content = "- [ ] Task 1";
+        fs::write(&file_path, content)?;
+
+        let (mut task_file, _) = TaskFile::load(file_path.clone())?;
+
+        let sync_items = vec![SyncItem {
+            text: "New Task".to_string(),
+            resolution: SyncResolution::Incomplete,
+        }];
+
+        task_file.write_sync(&sync_items)?;
+
+        let result = fs::read_to_string(&file_path)?;
+        assert!(result.contains("- [ ] Task 1"));
+        assert!(result.contains("- [ ] New Task"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_sync_remove_task() -> Result<(), io::Error> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("test_tasks.md");
+
+        let content = "- [ ] Task 1\n- [ ] Task 2\n- [ ] Task 3";
+        fs::write(&file_path, content)?;
+
+        let (mut task_file, _) = TaskFile::load(file_path.clone())?;
+
+        let sync_items = vec![SyncItem {
+            text: "Task 2".to_string(),
+            resolution: SyncResolution::Remove,
+        }];
+
+        task_file.write_sync(&sync_items)?;
+
+        let result = fs::read_to_string(&file_path)?;
+        assert!(result.contains("- [ ] Task 1"));
+        assert!(!result.contains("Task 2"));
+        assert!(result.contains("- [ ] Task 3"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_sync_preserves_indentation() -> Result<(), io::Error> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("test_tasks.md");
+
+        let content = "  - [ ] Indented task";
+        fs::write(&file_path, content)?;
+
+        let (mut task_file, _) = TaskFile::load(file_path.clone())?;
+
+        let sync_items = vec![SyncItem {
+            text: "Indented task".to_string(),
+            resolution: SyncResolution::Complete,
+        }];
+
+        task_file.write_sync(&sync_items)?;
+
+        let result = fs::read_to_string(&file_path)?;
+        assert!(result.contains("  - [x] Indented task"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_sync_multiple_operations() -> Result<(), io::Error> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("test_tasks.md");
+
+        let content = "- [ ] Task 1\n- [x] Task 2\n- [ ] Task 3";
+        fs::write(&file_path, content)?;
+
+        let (mut task_file, _) = TaskFile::load(file_path.clone())?;
+
+        let sync_items = vec![
+            SyncItem {
+                text: "Task 1".to_string(),
+                resolution: SyncResolution::Complete,
+            },
+            SyncItem {
+                text: "Task 2".to_string(),
+                resolution: SyncResolution::Incomplete,
+            },
+            SyncItem {
+                text: "Task 3".to_string(),
+                resolution: SyncResolution::Remove,
+            },
+            SyncItem {
+                text: "New Task 4".to_string(),
+                resolution: SyncResolution::Incomplete,
+            },
+        ];
+
+        task_file.write_sync(&sync_items)?;
+
+        let result = fs::read_to_string(&file_path)?;
+        assert!(result.contains("- [x] Task 1"));
+        assert!(result.contains("- [ ] Task 2"));
+        assert!(!result.contains("Task 3"));
+        assert!(result.contains("- [ ] New Task 4"));
+
+        Ok(())
+    }
+}
