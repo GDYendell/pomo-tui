@@ -74,7 +74,9 @@ impl App {
             if let Some(ref audio) = self.audio {
                 audio.play_notification();
             }
-            send_notification("Pomo-TUI", "Session completed!");
+            if let Some(err) = send_notification("Pomo-TUI", "Session completed!") {
+                self.error_message = Some(err);
+            }
         }
 
         self.timer_panel.next_animation_frame();
