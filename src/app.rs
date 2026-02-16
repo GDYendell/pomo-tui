@@ -93,9 +93,10 @@ impl App {
 
     fn sync_tasks(&mut self) {
         if !self.task_manager.has_file_path() {
-            self.error_message =
-                Some("No task file provided. Use --tasks <file> to enable sync.".to_string());
-            return;
+            if let Err(e) = self.task_manager.create_default_file() {
+                self.error_message = Some(format!("Failed to create default task file: {e}"));
+                return;
+            }
         }
         match self.task_manager.compute_sync_items() {
             Ok(items) => {
