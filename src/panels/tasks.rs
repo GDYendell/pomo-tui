@@ -39,6 +39,8 @@ pub struct TasksPanel {
     focus: TaskFocus,
     /// Visible task rows per section (updated during render)
     section_page_size: usize,
+    /// When true, only show the Current section (hide Backlog and Completed)
+    current_only: bool,
 }
 
 impl Default for TasksPanel {
@@ -46,6 +48,7 @@ impl Default for TasksPanel {
         Self {
             focus: TaskFocus::default(),
             section_page_size: 10,
+            current_only: false,
         }
     }
 }
@@ -53,6 +56,13 @@ impl Default for TasksPanel {
 impl TasksPanel {
     pub const fn focused_section(&self) -> TaskSection {
         self.focus.section
+    }
+
+    pub fn toggle_current_only(&mut self) {
+        self.current_only = !self.current_only;
+        if self.current_only {
+            self.focus.section = TaskSection::Current;
+        }
     }
 
     pub fn render(
@@ -67,48 +77,63 @@ impl TasksPanel {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Split into three equal sections manually to avoid rounding issues
-        let h = inner.height;
-        let third = h / 3;
-        let remainder = h % 3;
-        // Distribute remainder: first section gets +1 if remainder >= 1, second if >= 2
-        let h0 = third + u16::from(remainder >= 1);
-        let h1 = third + u16::from(remainder >= 2);
-        let h2 = h - h0 - h1;
-        let chunks = Layout::vertical([
-            Constraint::Length(h0),
-            Constraint::Length(h1),
-            Constraint::Length(h2),
-        ])
-        .split(inner);
+        if self.current_only {
+            // Current-only mode: render only the Current section using full height
+            self.section_page_size = (inner.height as usize).saturating_sub(3).max(1);
 
-        // Store page size for page up/down
-        // Section inner height = chunk height - border (1) - ellipsis row (1)
-        self.section_page_size = (third as usize).saturating_sub(3).max(1);
-
-        for (i, ((section, title, checkbox, bottom_border), tasks)) in SECTIONS
-            .iter()
-            .zip([
-                task_manager.backlog(),
-                task_manager.current(),
-                task_manager.completed(),
-            ])
-            .enumerate()
-        {
-            let section_focused = focused && self.focus.section == *section;
+            let section_focused = focused;
             let cursor = if section_focused {
                 Some(self.focus.index)
             } else {
                 None
             };
-            let inner = Self::render_section_frame(
-                frame,
-                chunks[i],
-                title,
-                section_focused,
-                *bottom_border,
-            );
-            Self::render_task_list(frame, inner, tasks, checkbox, cursor);
+            let section_inner =
+                Self::render_section_frame(frame, inner, "Current", section_focused, false);
+            Self::render_task_list(frame, section_inner, task_manager.current(), "[ ]", cursor);
+        } else {
+            // Normal mode: render all three sections
+            let h = inner.height;
+            let third = h / 3;
+            let remainder = h % 3;
+            // Distribute remainder: first section gets +1 if remainder >= 1, second if >= 2
+            let h0 = third + u16::from(remainder >= 1);
+            let h1 = third + u16::from(remainder >= 2);
+            let h2 = h - h0 - h1;
+            let chunks = Layout::vertical([
+                Constraint::Length(h0),
+                Constraint::Length(h1),
+                Constraint::Length(h2),
+            ])
+            .split(inner);
+
+            // Store page size for page up/down
+            // Section inner height = chunk height - border (1) - ellipsis row (1)
+            self.section_page_size = (third as usize).saturating_sub(3).max(1);
+
+            for (i, ((section, title, checkbox, bottom_border), tasks)) in SECTIONS
+                .iter()
+                .zip([
+                    task_manager.backlog(),
+                    task_manager.current(),
+                    task_manager.completed(),
+                ])
+                .enumerate()
+            {
+                let section_focused = focused && self.focus.section == *section;
+                let cursor = if section_focused {
+                    Some(self.focus.index)
+                } else {
+                    None
+                };
+                let section_inner = Self::render_section_frame(
+                    frame,
+                    chunks[i],
+                    title,
+                    section_focused,
+                    *bottom_border,
+                );
+                Self::render_task_list(frame, section_inner, tasks, checkbox, cursor);
+            }
         }
     }
 
@@ -173,6 +198,11 @@ impl TasksPanel {
                 self.clamp_focus(task_manager);
                 KeyHandleResult::Consumed
             }
+            KeyCode::Char('c') => {
+                self.toggle_current_only();
+                self.clamp_focus(task_manager);
+                KeyHandleResult::Consumed
+            }
             _ => KeyHandleResult::Ignored,
         }
     }
@@ -210,6 +240,10 @@ impl TasksPanel {
             Shortcut {
                 key: "s",
                 description: "Sync",
+            },
+            Shortcut {
+                key: "c",
+                description: "Focus",
             },
         ]
     }
@@ -253,6 +287,9 @@ impl TasksPanel {
     }
 
     fn next_section(&mut self, task_manager: &TaskManager) {
+        if self.current_only {
+            return;
+        }
         self.focus.section = match self.focus.section {
             TaskSection::Backlog => TaskSection::Current,
             TaskSection::Current => TaskSection::Completed,
@@ -262,6 +299,9 @@ impl TasksPanel {
     }
 
     fn prev_section(&mut self, task_manager: &TaskManager) {
+        if self.current_only {
+            return;
+        }
         self.focus.section = match self.focus.section {
             TaskSection::Backlog => TaskSection::Completed,
             TaskSection::Current => TaskSection::Backlog,
@@ -673,5 +713,53 @@ mod tests {
         assert_eq!(tm.section_len(TaskSection::Completed), 1);
         assert_eq!(tm.completed()[0].text, "Completed 2");
         assert_eq!(panel.focus.index, 0);
+    }
+
+    #[test]
+    fn test_current_only_toggle() {
+        let mut panel = TasksPanel::default();
+        let mut tm = TaskManager::new();
+
+        // Add tasks to all sections
+        tm.add_task("Backlog 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Current 1".to_string(), TaskSection::Current);
+        tm.add_task("Current 2".to_string(), TaskSection::Current);
+
+        // Initial state: current_only is false, focus on Backlog
+        assert!(!panel.current_only);
+        assert_eq!(panel.focus.section, TaskSection::Backlog);
+
+        // Toggle to current-only mode via keybinding
+        panel.handle_key(KeyEvent::from(KeyCode::Char('c')), &mut tm);
+
+        // Should now be in current-only mode with focus on Current
+        assert!(panel.current_only);
+        assert_eq!(panel.focus.section, TaskSection::Current);
+        assert_eq!(panel.focus.index, 0);
+
+        // Section navigation should be disabled in current-only mode
+        panel.next_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Current); // Still on Current
+
+        panel.prev_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Current); // Still on Current
+
+        // Regular navigation within Current section should still work
+        panel.move_down(&tm);
+        assert_eq!(panel.focus.index, 1);
+
+        panel.move_up();
+        assert_eq!(panel.focus.index, 0);
+
+        // Toggle back to normal mode
+        panel.handle_key(KeyEvent::from(KeyCode::Char('c')), &mut tm);
+
+        // Should be back in normal mode, focus stays on Current
+        assert!(!panel.current_only);
+        assert_eq!(panel.focus.section, TaskSection::Current);
+
+        // Section navigation should work again
+        panel.next_section(&tm);
+        assert_eq!(panel.focus.section, TaskSection::Completed);
     }
 }
