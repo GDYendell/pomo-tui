@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent};
 
+use crate::melodies::{TWO_TONE, VICTORY_FANFARE};
 use crate::notifications::{send_notification, AudioPlayer};
 use crate::overlays::{SyncAction, SyncOverlay, TaskInputAction, TaskInputOverlay};
 use crate::panels::{KeyHandleResult, PanelId, TasksPanel, TimerPanel, TIMER_MIN_WIDTH};
 use crate::task::TaskSection;
 use crate::task_manager::TaskManager;
-use crate::timer::Timer;
+use crate::timer::{SessionType, Timer};
 use crate::util::Shortcut;
 
 /// Main application state coordinating timer, tasks, panels, and overlays
@@ -72,7 +73,16 @@ impl App {
 
         if session_completed {
             if let Some(ref audio) = self.audio {
-                audio.play_notification();
+                // After completion the timer has already transitioned to the next session type.
+                // If the new session is a break, a work session just finished → play the fanfare.
+                if matches!(
+                    self.timer.session_type(),
+                    SessionType::ShortBreak | SessionType::LongBreak
+                ) {
+                    audio.play_melody(VICTORY_FANFARE);
+                } else {
+                    audio.play_melody(TWO_TONE);
+                }
             }
             if let Some(err) = send_notification("Pomo-TUI", "Session completed!") {
                 self.error_message = Some(err);

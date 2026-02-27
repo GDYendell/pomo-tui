@@ -1,7 +1,8 @@
 use std::process::Command;
-use std::time::Duration;
 
-use rodio::source::{SineWave, Source};
+use crate::melodies::Melody;
+
+use rodio::buffer::SamplesBuffer;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 
 /// Send text notification via notify-send, returning any error message
@@ -22,6 +23,37 @@ pub fn send_notification(title: &str, message: &str) -> Option<String> {
     }
 }
 
+/// Renders a [`Melody`] into a [`SamplesBuffer`].
+///
+/// Each audible note gets a short linear fade-out to prevent inter-note clicks.
+/// A tail of silence is appended so hardware output buffers flush cleanly.
+fn load_melody(melody: Melody) -> SamplesBuffer<f32> {
+    const SAMPLE_RATE: u32 = 44100;
+    const AMP: f32 = 0.3;
+    const FADE: usize = 400; // ~9ms linear fade-out per note
+    const FADE_STEP: f32 = 1.0 / FADE as f32;
+
+    let mut samples = Vec::new();
+    for &(freq, dur_ms) in melody {
+        let n = SAMPLE_RATE as usize * dur_ms as usize / 1000;
+        let phase_inc = freq / (SAMPLE_RATE as f32);
+        let mut phase = 0.0_f32;
+        let mut gain = 1.0_f32;
+        for i in 0..n {
+            if freq > 0.0 && n - i <= FADE {
+                gain = (gain - FADE_STEP).max(0.0);
+            }
+            samples.push((std::f32::consts::TAU * phase).sin() * AMP * gain);
+            phase = (phase + phase_inc).fract();
+        }
+    }
+
+    // Trailing silence lets the hardware output buffer drain before the stream ends
+    samples.resize(samples.len() + SAMPLE_RATE as usize / 5, 0.0_f32);
+
+    SamplesBuffer::new(1, SAMPLE_RATE, samples)
+}
+
 /// Play audio notifications using rodio for session completion alerts
 pub struct AudioPlayer {
     _stream: OutputStream,
@@ -37,30 +69,10 @@ impl AudioPlayer {
         })
     }
 
-    pub fn play_notification(&self) {
-        // Create a sink for playback
+    /// Play a melody without blocking
+    pub fn play_melody(&self, melody: Melody) {
         if let Ok(sink) = Sink::try_new(&self.stream_handle) {
-            // Generate a pleasant two-tone notification
-            // First tone: 880 Hz (A5) for 150ms
-            let tone1 = SineWave::new(880.0)
-                .take_duration(Duration::from_millis(150))
-                .amplify(0.3);
-
-            // Brief pause
-            let silence = SineWave::new(0.0)
-                .take_duration(Duration::from_millis(50))
-                .amplify(0.0);
-
-            // Second tone: 1108 Hz (C#6) for 200ms
-            let tone2 = SineWave::new(1108.0)
-                .take_duration(Duration::from_millis(200))
-                .amplify(0.3);
-
-            sink.append(tone1);
-            sink.append(silence);
-            sink.append(tone2);
-
-            // Detach so it plays without blocking
+            sink.append(load_melody(melody));
             sink.detach();
         }
     }

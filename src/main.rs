@@ -1,5 +1,6 @@
 mod app;
 mod fileio;
+mod melodies;
 mod notifications;
 mod overlays;
 mod panels;
@@ -27,6 +28,7 @@ use app::App;
 fn main() -> io::Result<()> {
     // Parse CLI arguments
     let args: Vec<String> = std::env::args().collect();
+
     let task_file = args.get(1).map(PathBuf::from);
 
     // Setup terminal
