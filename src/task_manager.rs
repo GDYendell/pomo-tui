@@ -1,3 +1,5 @@
+use std::env;
+use std::fs;
 use std::io;
 use std::path::PathBuf;
 
@@ -31,6 +33,45 @@ impl TaskManager {
             current: Vec::new(),
             completed: parsed.complete.into_iter().map(Task::new).collect(),
         })
+    }
+
+    /// Create and set the default task file at `~/.cache/pomo-tui/tasks.md`
+    pub fn create_default_file(&mut self) -> Result<(), io::Error> {
+        // Resolve home directory
+        let home = env::var("HOME")
+            .or_else(|_| env::var("USERPROFILE"))
+            .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "Home directory not found"))?;
+
+        let cache_dir = PathBuf::from(home).join(".cache").join("pomo-tui");
+        let file_path = cache_dir.join("tasks.md");
+
+        // Create directory structure if it doesn't exist
+        fs::create_dir_all(&cache_dir)?;
+
+        // Create empty file if it doesn't exist (or just open it if it does)
+        if !file_path.exists() {
+            fs::File::create(&file_path)?;
+        }
+
+        // Load the task file
+        let (file, parsed) = TaskFile::load(file_path)?;
+
+        // Set the file and merge any tasks from the file into current state
+        self.file = Some(file);
+        for text in parsed.incomplete {
+            if !self.backlog.iter().any(|t| t.text == text)
+                && !self.current.iter().any(|t| t.text == text)
+            {
+                self.backlog.push(Task::new(text));
+            }
+        }
+        for text in parsed.complete {
+            if !self.completed.iter().any(|t| t.text == text) {
+                self.completed.push(Task::new(text));
+            }
+        }
+
+        Ok(())
     }
 
     /// Compute diff between app state and file, returning sync items needing resolution
