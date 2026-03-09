@@ -12,6 +12,12 @@ use crate::task::TaskSection;
 use crate::task_manager::TaskManager;
 use crate::util::Shortcut;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ViewMode {
+    AllSections,
+    CurrentOnly,
+}
+
 const SECTIONS: [(TaskSection, &str, &str, bool); 3] = [
     (TaskSection::Backlog, "Backlog", "[ ]", true),
     (TaskSection::Current, "Current", "[ ]", true),
@@ -39,6 +45,7 @@ pub struct TasksPanel {
     focus: TaskFocus,
     /// Visible task rows per section (updated during render)
     section_page_size: usize,
+    view_mode: ViewMode,
 }
 
 impl Default for TasksPanel {
@@ -46,6 +53,7 @@ impl Default for TasksPanel {
         Self {
             focus: TaskFocus::default(),
             section_page_size: 10,
+            view_mode: ViewMode::AllSections,
         }
     }
 }
@@ -53,6 +61,17 @@ impl Default for TasksPanel {
 impl TasksPanel {
     pub const fn focused_section(&self) -> TaskSection {
         self.focus.section
+    }
+
+    fn toggle_view_mode(&mut self, task_manager: &TaskManager) {
+        self.view_mode = match self.view_mode {
+            ViewMode::AllSections => ViewMode::CurrentOnly,
+            ViewMode::CurrentOnly => ViewMode::AllSections,
+        };
+        if self.view_mode == ViewMode::CurrentOnly {
+            self.focus.section = TaskSection::Current;
+            self.clamp_focus(task_manager);
+        }
     }
 
     pub fn render(
@@ -66,6 +85,18 @@ impl TasksPanel {
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
+
+        if self.view_mode == ViewMode::CurrentOnly {
+            self.section_page_size = (inner.height as usize).saturating_sub(3).max(1);
+            let cursor = if focused {
+                Some(self.focus.index)
+            } else {
+                None
+            };
+            let section_inner = Self::render_section_frame(frame, inner, "Current", focused, false);
+            Self::render_task_list(frame, section_inner, task_manager.current(), "[ ]", cursor);
+            return;
+        }
 
         // Split into three equal sections manually to avoid rounding issues
         let h = inner.height;
@@ -137,7 +168,11 @@ impl TasksPanel {
                 }
                 KeyHandleResult::Consumed
             }
-            KeyCode::Tab => {
+            KeyCode::Char('v') => {
+                self.toggle_view_mode(task_manager);
+                KeyHandleResult::Consumed
+            }
+            KeyCode::Tab if self.view_mode == ViewMode::AllSections => {
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
                     self.prev_section(task_manager);
                 } else {
@@ -145,10 +180,11 @@ impl TasksPanel {
                 }
                 KeyHandleResult::Consumed
             }
-            KeyCode::BackTab => {
+            KeyCode::BackTab if self.view_mode == ViewMode::AllSections => {
                 self.prev_section(task_manager);
                 KeyHandleResult::Consumed
             }
+            KeyCode::Tab | KeyCode::BackTab => KeyHandleResult::Consumed,
             KeyCode::Enter => {
                 task_manager.cycle_task_section(self.focus.section, self.focus.index);
                 self.clamp_focus(task_manager);
@@ -179,6 +215,10 @@ impl TasksPanel {
 
     pub fn shortcuts(&self) -> Vec<Shortcut> {
         vec![
+            Shortcut {
+                key: "v",
+                description: "View",
+            },
             Shortcut {
                 key: "Tab",
                 description: "Section",
@@ -672,6 +712,51 @@ mod tests {
         panel.handle_key(KeyEvent::from(KeyCode::Char('d')), &mut tm);
         assert_eq!(tm.section_len(TaskSection::Completed), 1);
         assert_eq!(tm.completed()[0].text, "Completed 2");
+        assert_eq!(panel.focus.index, 0);
+    }
+
+    #[test]
+    fn test_toggle_view_mode() {
+        let mut panel = TasksPanel::default();
+        let mut tm = TaskManager::new();
+        tm.add_task("Backlog 1".to_string(), TaskSection::Backlog);
+        tm.add_task("Current 1".to_string(), TaskSection::Current);
+        tm.add_task("Current 2".to_string(), TaskSection::Current);
+
+        // Starts in AllSections
+        assert_eq!(panel.view_mode, ViewMode::AllSections);
+
+        // Toggle to CurrentOnly via key
+        panel.handle_key(KeyEvent::from(KeyCode::Char('v')), &mut tm);
+        assert_eq!(panel.view_mode, ViewMode::CurrentOnly);
+        // Focus forced to Current
+        assert_eq!(panel.focus.section, TaskSection::Current);
+        assert_eq!(panel.focus.index, 0);
+
+        // Toggle back to AllSections
+        panel.handle_key(KeyEvent::from(KeyCode::Char('v')), &mut tm);
+        assert_eq!(panel.view_mode, ViewMode::AllSections);
+
+        // Focus on Backlog at index beyond Current length, then toggle
+        panel.focus.section = TaskSection::Backlog;
+        panel.focus.index = 0;
+        panel.handle_key(KeyEvent::from(KeyCode::Char('v')), &mut tm);
+        assert_eq!(panel.view_mode, ViewMode::CurrentOnly);
+        assert_eq!(panel.focus.section, TaskSection::Current);
+        assert_eq!(panel.focus.index, 0);
+
+        // Tab is consumed but does not change section in CurrentOnly
+        panel.handle_key(KeyEvent::from(KeyCode::Tab), &mut tm);
+        assert_eq!(panel.focus.section, TaskSection::Current);
+
+        // BackTab also consumed without effect
+        panel.handle_key(KeyEvent::from(KeyCode::BackTab), &mut tm);
+        assert_eq!(panel.focus.section, TaskSection::Current);
+
+        // Navigation within Current still works
+        panel.handle_key(KeyEvent::from(KeyCode::Char('j')), &mut tm);
+        assert_eq!(panel.focus.index, 1);
+        panel.handle_key(KeyEvent::from(KeyCode::Char('k')), &mut tm);
         assert_eq!(panel.focus.index, 0);
     }
 }
