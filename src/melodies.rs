@@ -1,4 +1,4 @@
-/// A sequence of (frequency_hz, duration_ms) note pairs. Use `SILENCE` for rests.
+/// A sequence of (`frequency_hz`, `duration_ms`) note pairs. Use `SILENCE` for rests.
 pub type Melody = &'static [(f32, u64)];
 
 // Note frequencies in Hz

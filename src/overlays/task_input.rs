@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Style},
@@ -6,75 +6,58 @@ use ratatui::{
     widgets::Paragraph,
     Frame,
 };
+use ratatui_input_manager::{keymap, KeyMap};
 
 use super::util::{centered_rect, render_overlay_frame};
 use crate::task::TaskSection;
 
-pub enum TaskInputAction {
-    Consumed,
-    Dismiss,
-    Submit { text: String, section: TaskSection },
-}
-
 /// Overlay for adding new tasks
 pub struct TaskInputOverlay {
-    /// Text description of task
-    pub text: String,
-    /// Character position in text
-    pub cursor: usize,
-    /// Section the task being edited is in
-    pub section: TaskSection,
+    text: String,
+    cursor: usize,
+    section: TaskSection,
+    dismissed: bool,
+    submitted: bool,
 }
 
 impl TaskInputOverlay {
-    pub const fn new(section: TaskSection) -> Self {
+    pub fn new(section: TaskSection) -> Self {
         Self {
             text: String::new(),
             cursor: 0,
             section,
+            dismissed: false,
+            submitted: false,
         }
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> TaskInputAction {
-        match key.code {
-            KeyCode::Esc => TaskInputAction::Dismiss,
-            KeyCode::Enter => {
-                let text = self.text.trim().to_string();
-                if text.is_empty() {
-                    TaskInputAction::Dismiss
-                } else {
-                    TaskInputAction::Submit {
-                        text,
-                        section: self.section,
-                    }
-                }
-            }
-            KeyCode::Backspace => {
-                if self.cursor > 0 {
-                    self.text.remove(self.cursor - 1);
-                    self.cursor -= 1;
-                }
-                TaskInputAction::Consumed
-            }
-            KeyCode::Left => {
-                if self.cursor > 0 {
-                    self.cursor -= 1;
-                }
-                TaskInputAction::Consumed
-            }
-            KeyCode::Right => {
-                if self.cursor < self.text.len() {
-                    self.cursor += 1;
-                }
-                TaskInputAction::Consumed
-            }
-            KeyCode::Char(c) => {
-                self.text.insert(self.cursor, c);
-                self.cursor += 1;
-                TaskInputAction::Consumed
-            }
-            _ => TaskInputAction::Consumed,
+    pub fn is_done(&self) -> bool {
+        self.dismissed || self.submitted
+    }
+
+    /// Returns the submitted task text and section, or None if dismissed
+    pub fn result(&self) -> Option<(String, TaskSection)> {
+        self.submitted
+            .then(|| (self.text.trim().to_string(), self.section))
+    }
+
+    pub fn handle(&mut self, event: &Event) -> bool {
+        if let Event::Key(KeyEvent {
+            code: KeyCode::Char(c),
+            kind: KeyEventKind::Press,
+            ..
+        }) = event
+        {
+            self.insert_char(*c);
+            true
+        } else {
+            KeyMap::handle(self, event)
         }
+    }
+
+    fn insert_char(&mut self, c: char) {
+        self.text.insert(self.cursor, c);
+        self.cursor += 1;
     }
 
     pub fn render(&self, frame: &mut Frame) {
@@ -141,5 +124,49 @@ impl TaskInputOverlay {
             Paragraph::new(hints).alignment(Alignment::Center),
             hints_area,
         );
+    }
+}
+
+#[keymap(backend = "crossterm")]
+impl TaskInputOverlay {
+    /// Cancel
+    #[keybind(pressed(key=KeyCode::Esc))]
+    fn dismiss(&mut self) {
+        self.dismissed = true;
+    }
+
+    /// Add task
+    #[keybind(pressed(key=KeyCode::Enter))]
+    fn submit(&mut self) {
+        if self.text.trim().is_empty() {
+            self.dismissed = true;
+        } else {
+            self.submitted = true;
+        }
+    }
+
+    /// Delete character
+    #[keybind(pressed(key=KeyCode::Backspace))]
+    fn backspace(&mut self) {
+        if self.cursor > 0 {
+            self.text.remove(self.cursor - 1);
+            self.cursor -= 1;
+        }
+    }
+
+    /// Move cursor left
+    #[keybind(pressed(key=KeyCode::Left))]
+    fn cursor_left(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+        }
+    }
+
+    /// Move cursor right
+    #[keybind(pressed(key=KeyCode::Right))]
+    fn cursor_right(&mut self) {
+        if self.cursor < self.text.len() {
+            self.cursor += 1;
+        }
     }
 }

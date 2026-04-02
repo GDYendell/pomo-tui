@@ -31,11 +31,13 @@ fn load_melody(melody: Melody) -> SamplesBuffer<f32> {
     const SAMPLE_RATE: u32 = 44100;
     const AMP: f32 = 0.3;
     const FADE: usize = 400; // ~9ms linear fade-out per note
+    #[allow(clippy::cast_precision_loss)]
     const FADE_STEP: f32 = 1.0 / FADE as f32;
 
     let mut samples = Vec::new();
     for &(freq, dur_ms) in melody {
         let n = SAMPLE_RATE as usize * dur_ms as usize / 1000;
+        #[allow(clippy::cast_precision_loss)]
         let phase_inc = freq / (SAMPLE_RATE as f32);
         let mut phase = 0.0_f32;
         let mut gain = 1.0_f32;

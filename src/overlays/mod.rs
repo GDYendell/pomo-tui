@@ -6,5 +6,5 @@ mod util;
 
 pub use error::render_error_overlay;
 pub use help::render_help_overlay;
-pub use sync::{SyncAction, SyncItem, SyncOverlay, SyncResolution};
-pub use task_input::{TaskInputAction, TaskInputOverlay};
+pub use sync::{SyncItem, SyncOverlay, SyncResolution};
+pub use task_input::TaskInputOverlay;

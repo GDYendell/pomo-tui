@@ -1,12 +1,13 @@
-use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
+use ratatui_input_manager::keymap;
 
 use super::util::centered_rect;
+use crossterm::event::KeyCode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncResolution {
@@ -22,62 +23,31 @@ pub struct SyncItem {
     pub resolution: SyncResolution,
 }
 
-pub enum SyncAction {
-    Consumed,
-    Dismiss,
-    Apply(Vec<SyncItem>),
-}
-
 /// Overlay for reviewing and applying task file sync changes
 pub struct SyncOverlay {
-    pub items: Vec<SyncItem>,
-    pub focused: usize,
+    items: Vec<SyncItem>,
+    focused: usize,
+    dismissed: bool,
+    applied: bool,
 }
 
 impl SyncOverlay {
-    pub const fn new(items: Vec<SyncItem>) -> Self {
-        Self { items, focused: 0 }
+    pub fn new(items: Vec<SyncItem>) -> Self {
+        Self {
+            items,
+            focused: 0,
+            dismissed: false,
+            applied: false,
+        }
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> SyncAction {
-        match key.code {
-            KeyCode::Esc => SyncAction::Dismiss,
-            KeyCode::Char('j') => {
-                if !self.items.is_empty() && self.focused + 1 < self.items.len() {
-                    self.focused += 1;
-                }
-                SyncAction::Consumed
-            }
-            KeyCode::Char('k') => {
-                if self.focused > 0 {
-                    self.focused -= 1;
-                }
-                SyncAction::Consumed
-            }
-            KeyCode::Char(' ') => {
-                if let Some(item) = self.items.get_mut(self.focused) {
-                    item.resolution = SyncResolution::Incomplete;
-                }
-                SyncAction::Consumed
-            }
-            KeyCode::Char('x') => {
-                if let Some(item) = self.items.get_mut(self.focused) {
-                    item.resolution = SyncResolution::Complete;
-                }
-                SyncAction::Consumed
-            }
-            KeyCode::Char('d') => {
-                if let Some(item) = self.items.get_mut(self.focused) {
-                    item.resolution = SyncResolution::Remove;
-                }
-                SyncAction::Consumed
-            }
-            KeyCode::Enter => {
-                let items = std::mem::take(&mut self.items);
-                SyncAction::Apply(items)
-            }
-            _ => SyncAction::Consumed,
-        }
+    pub fn is_done(&self) -> bool {
+        self.dismissed || self.applied
+    }
+
+    /// Returns the sync items to apply, or None if dismissed
+    pub fn result(&self) -> Option<&[SyncItem]> {
+        self.applied.then_some(&self.items)
     }
 
     pub fn render(&self, frame: &mut Frame) {
@@ -156,5 +126,60 @@ impl SyncOverlay {
 
         let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(paragraph, overlay_area);
+    }
+}
+
+#[keymap(backend = "crossterm")]
+impl SyncOverlay {
+    /// Cancel
+    #[keybind(pressed(key=KeyCode::Esc))]
+    fn dismiss(&mut self) {
+        self.dismissed = true;
+    }
+
+    /// Apply changes
+    #[keybind(pressed(key=KeyCode::Enter))]
+    fn apply(&mut self) {
+        self.applied = true;
+    }
+
+    /// Move focus down
+    #[keybind(pressed(key=KeyCode::Char('j')))]
+    fn move_down(&mut self) {
+        if !self.items.is_empty() && self.focused + 1 < self.items.len() {
+            self.focused += 1;
+        }
+    }
+
+    /// Move focus up
+    #[keybind(pressed(key=KeyCode::Char('k')))]
+    fn move_up(&mut self) {
+        if self.focused > 0 {
+            self.focused -= 1;
+        }
+    }
+
+    /// Mark as incomplete
+    #[keybind(pressed(key=KeyCode::Char(' ')))]
+    fn mark_incomplete(&mut self) {
+        if let Some(item) = self.items.get_mut(self.focused) {
+            item.resolution = SyncResolution::Incomplete;
+        }
+    }
+
+    /// Mark as complete
+    #[keybind(pressed(key=KeyCode::Char('x')))]
+    fn mark_complete(&mut self) {
+        if let Some(item) = self.items.get_mut(self.focused) {
+            item.resolution = SyncResolution::Complete;
+        }
+    }
+
+    /// Mark for removal
+    #[keybind(pressed(key=KeyCode::Char('d')))]
+    fn mark_remove(&mut self) {
+        if let Some(item) = self.items.get_mut(self.focused) {
+            item.resolution = SyncResolution::Remove;
+        }
     }
 }
