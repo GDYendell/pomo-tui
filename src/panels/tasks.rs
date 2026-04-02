@@ -1,4 +1,7 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::io;
+use std::path::PathBuf;
+
+use crossterm::event::{Event, KeyCode};
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -6,11 +9,12 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
+use ratatui_input_manager::{keymap, KeyMap};
 
-use super::util::{panel_block, KeyHandleResult};
-use crate::task::TaskSection;
+use super::util::panel_block;
+use crate::overlays::{SyncItem, SyncOverlay, TaskInputOverlay};
+use crate::task::{Task, TaskSection};
 use crate::task_manager::TaskManager;
-use crate::util::Shortcut;
 
 const SECTIONS: [(TaskSection, &str, &str, bool); 3] = [
     (TaskSection::Backlog, "Backlog", "[ ]", true),
@@ -39,29 +43,80 @@ pub struct TasksPanel {
     focus: TaskFocus,
     /// Visible task rows per section (updated during render)
     section_page_size: usize,
+    task_manager: TaskManager,
+    task_input_overlay: Option<TaskInputOverlay>,
+    sync_overlay: Option<SyncOverlay>,
+    pending_error: Option<String>,
 }
 
 impl Default for TasksPanel {
     fn default() -> Self {
-        Self {
-            focus: TaskFocus::default(),
-            section_page_size: 10,
-        }
+        Self::new(TaskManager::new())
     }
 }
 
 impl TasksPanel {
-    pub const fn focused_section(&self) -> TaskSection {
-        self.focus.section
+    pub fn from_file(path: Option<PathBuf>) -> (Self, Option<String>) {
+        let Some(path) = path else {
+            return (Self::default(), None);
+        };
+        match TaskManager::load(path) {
+            Ok(tm) => (Self::new(tm), None),
+            Err(e) => (Self::default(), Some(format!("Failed to load tasks: {e}"))),
+        }
     }
 
-    pub fn render(
-        &mut self,
-        frame: &mut Frame,
-        area: Rect,
-        focused: bool,
-        task_manager: &TaskManager,
-    ) {
+    fn new(task_manager: TaskManager) -> Self {
+        Self {
+            focus: TaskFocus::default(),
+            section_page_size: 10,
+            task_manager,
+            task_input_overlay: None,
+            sync_overlay: None,
+            pending_error: None,
+        }
+    }
+
+    /// Route the event to the active overlay if one is open, otherwise dispatch keybindings
+    pub fn handle_event(&mut self, event: &Event) {
+        if let Some(ref mut overlay) = self.task_input_overlay {
+            overlay.handle_event(event);
+        } else if let Some(ref mut overlay) = self.sync_overlay {
+            overlay.handle(event);
+        } else {
+            self.handle(event);
+        }
+    }
+
+    pub fn task_input_overlay(&self) -> Option<&TaskInputOverlay> {
+        self.task_input_overlay.as_ref()
+    }
+
+    pub fn sync_overlay(&self) -> Option<&SyncOverlay> {
+        self.sync_overlay.as_ref()
+    }
+
+    pub fn take_error(&mut self) -> Option<String> {
+        self.pending_error.take()
+    }
+
+    fn process_overlay(&mut self) {
+        if let Some(overlay) = self.task_input_overlay.take_if(|o| o.is_done()) {
+            if let Some((text, section)) = overlay.result() {
+                self.task_manager.add_task(text, section);
+            }
+        }
+
+        if let Some(overlay) = self.sync_overlay.take_if(|o| o.is_done()) {
+            if let Some(items) = overlay.result() {
+                if let Err(e) = self.apply_sync(items) {
+                    self.pending_error = Some(format!("Sync failed: {e}"));
+                }
+            }
+        }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
         let block = panel_block(" Tasks ", focused);
 
         let inner = block.inner(area);
@@ -89,9 +144,9 @@ impl TasksPanel {
         for (i, ((section, title, checkbox, bottom_border), tasks)) in SECTIONS
             .iter()
             .zip([
-                task_manager.backlog(),
-                task_manager.current(),
-                task_manager.completed(),
+                self.task_manager.backlog(),
+                self.task_manager.current(),
+                self.task_manager.completed(),
             ])
             .enumerate()
         {
@@ -112,124 +167,44 @@ impl TasksPanel {
         }
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent, task_manager: &mut TaskManager) -> KeyHandleResult {
-        match key.code {
-            KeyCode::Char('j') => {
-                self.move_down(task_manager);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('k') => {
-                self.move_up();
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('J') => {
-                task_manager.reorder_down(self.focus.section, self.focus.index);
-                let len = task_manager.section_len(self.focus.section);
-                if self.focus.index + 1 < len {
-                    self.focus.index += 1;
-                }
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('K') => {
-                task_manager.reorder_up(self.focus.section, self.focus.index);
-                if self.focus.index > 0 {
-                    self.focus.index -= 1;
-                }
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Tab => {
-                if key.modifiers.contains(KeyModifiers::SHIFT) {
-                    self.prev_section(task_manager);
-                } else {
-                    self.next_section(task_manager);
-                }
-                KeyHandleResult::Consumed
-            }
-            KeyCode::BackTab => {
-                self.prev_section(task_manager);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Enter => {
-                task_manager.cycle_task_section(self.focus.section, self.focus.index);
-                self.clamp_focus(task_manager);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('x') => {
-                task_manager.toggle_completion(self.focus.section, self.focus.index);
-                self.clamp_focus(task_manager);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char(',') => {
-                self.page_down(task_manager);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('.') => {
-                self.page_up();
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('a') => KeyHandleResult::AddTask,
-            KeyCode::Char('d') => {
-                task_manager.delete_task(self.focus.section, self.focus.index);
-                self.clamp_focus(task_manager);
-                KeyHandleResult::Consumed
-            }
-            _ => KeyHandleResult::Ignored,
-        }
+    pub fn active_task(&self) -> Option<&Task> {
+        self.task_manager.active_task()
     }
 
-    pub fn shortcuts(&self) -> Vec<Shortcut> {
-        vec![
-            Shortcut {
-                key: "Tab",
-                description: "Section",
-            },
-            Shortcut {
-                key: "j/k",
-                description: "Navigate",
-            },
-            Shortcut {
-                key: "J/K",
-                description: "Reorder",
-            },
-            Shortcut {
-                key: "Enter",
-                description: "Move",
-            },
-            Shortcut {
-                key: "x",
-                description: "Complete",
-            },
-            Shortcut {
-                key: "a",
-                description: "Add",
-            },
-            Shortcut {
-                key: "d",
-                description: "Delete",
-            },
-            Shortcut {
-                key: "s",
-                description: "Sync",
-            },
-        ]
+    fn apply_sync(&mut self, items: &[SyncItem]) -> Result<(), io::Error> {
+        self.task_manager.apply_sync(items)?;
+        self.clamp_focus();
+        Ok(())
+    }
+
+    pub fn complete_current_task(&mut self) {
+        self.task_manager.complete_current_task();
     }
 
     // -- Focus/navigation methods --
 
-    /// Clamp the focus index to a valid position within the current section
-    ///
-    /// If the focus index is beyond the section's length (e.g., after tasks are deleted or when
-    /// cycling to a section with fewer tasks), it will be adjusted to the last valid index. If the
-    /// section is empty, the index will be clamped to 0.
-    pub fn clamp_focus(&mut self, task_manager: &TaskManager) {
-        let len = task_manager.section_len(self.focus.section);
+    /// Prepare a SyncOverlay by computing sync items from the task manager
+    fn sync_tasks(&mut self) -> Result<SyncOverlay, String> {
+        if !self.task_manager.has_file_path() {
+            if let Err(e) = self.task_manager.create_default_file() {
+                return Err(format!("Failed to create default task file: {e}"));
+            }
+        }
+        self.task_manager
+            .compute_sync_items()
+            .map(SyncOverlay::new)
+            .map_err(|e| format!("Sync failed: {e}"))
+    }
+
+    fn clamp_focus(&mut self) {
+        let len = self.task_manager.section_len(self.focus.section);
         if self.focus.index >= len {
             self.focus.index = len.saturating_sub(1);
         }
     }
 
-    fn move_down(&mut self, task_manager: &TaskManager) {
-        let len = task_manager.section_len(self.focus.section);
+    fn move_down(&mut self) {
+        let len = self.task_manager.section_len(self.focus.section);
         if len > 0 && self.focus.index + 1 < len {
             self.focus.index += 1;
         }
@@ -241,8 +216,25 @@ impl TasksPanel {
         }
     }
 
-    fn page_down(&mut self, task_manager: &TaskManager) {
-        let len = task_manager.section_len(self.focus.section);
+    fn reorder_down(&mut self) {
+        self.task_manager
+            .reorder_down(self.focus.section, self.focus.index);
+        let len = self.task_manager.section_len(self.focus.section);
+        if self.focus.index + 1 < len {
+            self.focus.index += 1;
+        }
+    }
+
+    fn reorder_up(&mut self) {
+        self.task_manager
+            .reorder_up(self.focus.section, self.focus.index);
+        if self.focus.index > 0 {
+            self.focus.index -= 1;
+        }
+    }
+
+    fn page_down(&mut self) {
+        let len = self.task_manager.section_len(self.focus.section);
         if len > 0 {
             self.focus.index = (self.focus.index + self.section_page_size).min(len - 1);
         }
@@ -252,22 +244,22 @@ impl TasksPanel {
         self.focus.index = self.focus.index.saturating_sub(self.section_page_size);
     }
 
-    fn next_section(&mut self, task_manager: &TaskManager) {
+    fn next_section(&mut self) {
         self.focus.section = match self.focus.section {
             TaskSection::Backlog => TaskSection::Current,
             TaskSection::Current => TaskSection::Completed,
             TaskSection::Completed => TaskSection::Backlog,
         };
-        self.clamp_focus(task_manager);
+        self.clamp_focus();
     }
 
-    fn prev_section(&mut self, task_manager: &TaskManager) {
+    fn prev_section(&mut self) {
         self.focus.section = match self.focus.section {
             TaskSection::Backlog => TaskSection::Completed,
             TaskSection::Current => TaskSection::Backlog,
             TaskSection::Completed => TaskSection::Current,
         };
-        self.clamp_focus(task_manager);
+        self.clamp_focus();
     }
 
     // -- Rendering helpers --
@@ -390,6 +382,99 @@ impl TasksPanel {
     }
 }
 
+#[keymap(backend = "crossterm")]
+impl TasksPanel {
+    /// Move focus down
+    #[keybind(pressed(key=KeyCode::Char('j')))]
+    fn key_move_down(&mut self) {
+        self.move_down();
+    }
+
+    /// Move focus up
+    #[keybind(pressed(key=KeyCode::Char('k')))]
+    fn key_move_up(&mut self) {
+        self.move_up();
+    }
+
+    /// Reorder task down
+    #[keybind(pressed(key=KeyCode::Char('J')))]
+    fn key_reorder_down(&mut self) {
+        self.reorder_down();
+    }
+
+    /// Reorder task up
+    #[keybind(pressed(key=KeyCode::Char('K')))]
+    fn key_reorder_up(&mut self) {
+        self.reorder_up();
+    }
+
+    /// Next section
+    #[keybind(pressed(key=KeyCode::Tab))]
+    fn key_next_section(&mut self) {
+        self.next_section();
+    }
+
+    /// Previous section
+    #[keybind(pressed(key=KeyCode::BackTab))]
+    fn key_prev_section(&mut self) {
+        self.prev_section();
+    }
+
+    /// Move task to next section
+    #[keybind(pressed(key=KeyCode::Enter))]
+    fn key_cycle_task(&mut self) {
+        self.task_manager
+            .cycle_task_section(self.focus.section, self.focus.index);
+        self.clamp_focus();
+    }
+
+    /// Toggle task completion
+    #[keybind(pressed(key=KeyCode::Char('x')))]
+    fn key_toggle_completion(&mut self) {
+        self.task_manager
+            .toggle_completion(self.focus.section, self.focus.index);
+        self.clamp_focus();
+    }
+
+    /// Page down
+    #[keybind(pressed(key=KeyCode::Char(',')))]
+    fn key_page_down(&mut self) {
+        self.page_down();
+    }
+
+    /// Page up
+    #[keybind(pressed(key=KeyCode::Char('.')))]
+    fn key_page_up(&mut self) {
+        self.page_up();
+    }
+
+    /// Add new task
+    #[keybind(pressed(key=KeyCode::Char('a')))]
+    fn key_add_task(&mut self) {
+        if self.focus.section != TaskSection::Completed {
+            self.task_input_overlay = Some(TaskInputOverlay::new(self.focus.section));
+        }
+    }
+
+    /// Sync tasks with file
+    #[keybind(pressed(key=KeyCode::Char('s')))]
+    #[keybind(pressed(key=KeyCode::Char('S')))]
+    fn key_sync(&mut self) {
+        match self.sync_tasks() {
+            Ok(overlay) => self.sync_overlay = Some(overlay),
+            Err(e) => self.pending_error = Some(e),
+        }
+    }
+
+    /// Delete focused task
+    #[keybind(pressed(key=KeyCode::Char('d')))]
+    fn key_delete_task(&mut self) {
+        self.task_manager
+            .delete_task(self.focus.section, self.focus.index);
+        self.clamp_focus();
+    }
+}
+
 /// Calculates scroll offset to keep focused item within margin from edges
 fn calculate_scroll_offset(total: usize, visible: usize, focused: Option<usize>) -> usize {
     let Some(cursor) = focused else { return 0 };
@@ -509,20 +594,25 @@ mod tests {
     #[test]
     fn test_move_up_down_navigation() {
         let mut panel = TasksPanel::default();
-        let mut tm = TaskManager::new();
-        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
-        tm.add_task("Task 2".to_string(), TaskSection::Backlog);
-        tm.add_task("Task 3".to_string(), TaskSection::Backlog);
+        panel
+            .task_manager
+            .add_task("Task 1".to_string(), TaskSection::Backlog);
+        panel
+            .task_manager
+            .add_task("Task 2".to_string(), TaskSection::Backlog);
+        panel
+            .task_manager
+            .add_task("Task 3".to_string(), TaskSection::Backlog);
 
         // Move down
         assert_eq!(panel.focus.index, 0);
-        panel.move_down(&tm);
+        panel.move_down();
         assert_eq!(panel.focus.index, 1);
-        panel.move_down(&tm);
+        panel.move_down();
         assert_eq!(panel.focus.index, 2);
 
         // Should not go beyond last item
-        panel.move_down(&tm);
+        panel.move_down();
         assert_eq!(panel.focus.index, 2);
 
         // Move up
@@ -542,21 +632,22 @@ mod tests {
             section_page_size: 5,
             ..Default::default()
         };
-        let mut tm = TaskManager::new();
         for i in 0..20 {
-            tm.add_task(format!("Task {i}"), TaskSection::Backlog);
+            panel
+                .task_manager
+                .add_task(format!("Task {i}"), TaskSection::Backlog);
         }
 
         // Page down
         assert_eq!(panel.focus.index, 0);
-        panel.page_down(&tm);
+        panel.page_down();
         assert_eq!(panel.focus.index, 5);
-        panel.page_down(&tm);
+        panel.page_down();
         assert_eq!(panel.focus.index, 10);
 
         // Should clamp to last item
-        panel.page_down(&tm);
-        panel.page_down(&tm);
+        panel.page_down();
+        panel.page_down();
         assert_eq!(panel.focus.index, 19);
 
         // Page up
@@ -580,57 +671,65 @@ mod tests {
     #[test]
     fn test_section_navigation() {
         let mut panel = TasksPanel::default();
-        let tm = TaskManager::new();
 
         // Next section cycling
         assert_eq!(panel.focus.section, TaskSection::Backlog);
-        panel.next_section(&tm);
+        panel.next_section();
         assert_eq!(panel.focus.section, TaskSection::Current);
-        panel.next_section(&tm);
+        panel.next_section();
         assert_eq!(panel.focus.section, TaskSection::Completed);
-        panel.next_section(&tm);
+        panel.next_section();
         assert_eq!(panel.focus.section, TaskSection::Backlog);
 
         // Previous section cycling
-        panel.prev_section(&tm);
+        panel.prev_section();
         assert_eq!(panel.focus.section, TaskSection::Completed);
-        panel.prev_section(&tm);
+        panel.prev_section();
         assert_eq!(panel.focus.section, TaskSection::Current);
-        panel.prev_section(&tm);
+        panel.prev_section();
         assert_eq!(panel.focus.section, TaskSection::Backlog);
     }
 
     #[test]
     fn test_focus_clamping() {
         let mut panel = TasksPanel::default();
-        let mut tm = TaskManager::new();
 
         // Clamp in empty section
         panel.focus.index = 5;
-        panel.clamp_focus(&tm);
+        panel.clamp_focus();
         assert_eq!(panel.focus.index, 0); // Clamped to 0 when section is empty
 
         // Clamp with items present
-        tm.add_task("Task 1".to_string(), TaskSection::Backlog);
-        tm.add_task("Task 2".to_string(), TaskSection::Backlog);
+        panel
+            .task_manager
+            .add_task("Task 1".to_string(), TaskSection::Backlog);
+        panel
+            .task_manager
+            .add_task("Task 2".to_string(), TaskSection::Backlog);
         panel.focus.index = 5;
-        panel.clamp_focus(&tm);
+        panel.clamp_focus();
         assert_eq!(panel.focus.index, 1); // Clamped to last item (index 1)
 
         // No clamp when already valid
         panel.focus.index = 1;
-        panel.clamp_focus(&tm);
+        panel.clamp_focus();
         assert_eq!(panel.focus.index, 1); // No change
 
         // Section switching auto-clamps focus
         for i in 0..5 {
-            tm.add_task(format!("Backlog {i}"), TaskSection::Backlog);
+            panel
+                .task_manager
+                .add_task(format!("Backlog {i}"), TaskSection::Backlog);
         }
-        tm.add_task("Current 1".to_string(), TaskSection::Current);
-        tm.add_task("Current 2".to_string(), TaskSection::Current);
+        panel
+            .task_manager
+            .add_task("Current 1".to_string(), TaskSection::Current);
+        panel
+            .task_manager
+            .add_task("Current 2".to_string(), TaskSection::Current);
 
         panel.focus.index = 4; // Last item in backlog (now has 7 items)
-        panel.next_section(&tm); // Switch to Current
+        panel.next_section(); // Switch to Current
 
         // Index should be clamped to 1 (last item in Current)
         assert_eq!(panel.focus.section, TaskSection::Current);
@@ -640,38 +739,47 @@ mod tests {
     #[test]
     fn test_delete_task_from_any_section() {
         let mut panel = TasksPanel::default();
-        let mut tm = TaskManager::new();
-
-        // Add tasks to all sections
-        tm.add_task("Backlog 1".to_string(), TaskSection::Backlog);
-        tm.add_task("Backlog 2".to_string(), TaskSection::Backlog);
-        tm.add_task("Current 1".to_string(), TaskSection::Current);
-        tm.add_task("Current 2".to_string(), TaskSection::Current);
-        tm.add_task("Completed 1".to_string(), TaskSection::Completed);
-        tm.add_task("Completed 2".to_string(), TaskSection::Completed);
+        panel
+            .task_manager
+            .add_task("Backlog 1".to_string(), TaskSection::Backlog);
+        panel
+            .task_manager
+            .add_task("Backlog 2".to_string(), TaskSection::Backlog);
+        panel
+            .task_manager
+            .add_task("Current 1".to_string(), TaskSection::Current);
+        panel
+            .task_manager
+            .add_task("Current 2".to_string(), TaskSection::Current);
+        panel
+            .task_manager
+            .add_task("Completed 1".to_string(), TaskSection::Completed);
+        panel
+            .task_manager
+            .add_task("Completed 2".to_string(), TaskSection::Completed);
 
         // Delete from Backlog
         panel.focus.section = TaskSection::Backlog;
         panel.focus.index = 0;
-        panel.handle_key(KeyEvent::from(KeyCode::Char('d')), &mut tm);
-        assert_eq!(tm.section_len(TaskSection::Backlog), 1);
-        assert_eq!(tm.backlog()[0].text, "Backlog 2");
+        panel.key_delete_task();
+        assert_eq!(panel.task_manager.section_len(TaskSection::Backlog), 1);
+        assert_eq!(panel.task_manager.backlog()[0].text, "Backlog 2");
         assert_eq!(panel.focus.index, 0);
 
         // Delete from Current
         panel.focus.section = TaskSection::Current;
         panel.focus.index = 1;
-        panel.handle_key(KeyEvent::from(KeyCode::Char('d')), &mut tm);
-        assert_eq!(tm.section_len(TaskSection::Current), 1);
-        assert_eq!(tm.current()[0].text, "Current 1");
+        panel.key_delete_task();
+        assert_eq!(panel.task_manager.section_len(TaskSection::Current), 1);
+        assert_eq!(panel.task_manager.current()[0].text, "Current 1");
         assert_eq!(panel.focus.index, 0); // Clamped after deletion
 
         // Delete from Completed
         panel.focus.section = TaskSection::Completed;
         panel.focus.index = 0;
-        panel.handle_key(KeyEvent::from(KeyCode::Char('d')), &mut tm);
-        assert_eq!(tm.section_len(TaskSection::Completed), 1);
-        assert_eq!(tm.completed()[0].text, "Completed 2");
+        panel.key_delete_task();
+        assert_eq!(panel.task_manager.section_len(TaskSection::Completed), 1);
+        assert_eq!(panel.task_manager.completed()[0].text, "Completed 2");
         assert_eq!(panel.focus.index, 0);
     }
 }

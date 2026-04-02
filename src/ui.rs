@@ -3,9 +3,11 @@ use ratatui::{
     Frame,
 };
 
+use ratatui_input_manager::KeyMap;
+
 use crate::app::App;
 use crate::overlays;
-use crate::panels::{PanelId, TIMER_MIN_WIDTH};
+use crate::panels::{PanelId, TasksPanel, TIMER_MIN_WIDTH};
 
 /// Layout regions for timer and tasks panels
 pub struct AppLayout {
@@ -47,32 +49,27 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             timer_area,
             app.focused_panel == PanelId::Timer,
             &app.timer,
-            app.task_manager.active_task(),
+            app.tasks_panel.active_task(),
         );
     }
 
     if let Some(tasks_area) = layout.tasks {
-        app.tasks_panel.render(
-            frame,
-            tasks_area,
-            app.focused_panel == PanelId::Tasks,
-            &app.task_manager,
-        );
+        app.tasks_panel
+            .render(frame, tasks_area, app.focused_panel == PanelId::Tasks);
     }
 
     // Render overlays
     if let Some(ref message) = app.error_message {
         overlays::render_error_overlay(frame, message);
-    } else if let Some(ref input) = app.task_input_overlay {
+    } else if let Some(ref input) = app.tasks_panel.task_input_overlay() {
         input.render(frame);
-    } else if let Some(ref sync) = app.sync_overlay {
+    } else if let Some(ref sync) = app.tasks_panel.sync_overlay() {
         sync.render(frame);
     } else if app.shortcuts_visible {
-        let panel_name = match app.focused_panel {
-            PanelId::Timer => "Timer",
-            PanelId::Tasks => "Tasks",
+        let keybinds = match app.focused_panel {
+            PanelId::Timer => App::KEYBINDS,
+            PanelId::Tasks => TasksPanel::KEYBINDS,
         };
-        let shortcuts = app.focused_shortcuts();
-        overlays::render_help_overlay(frame, panel_name, &shortcuts);
+        overlays::render_help_overlay(frame, keybinds);
     }
 }
