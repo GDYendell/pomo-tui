@@ -41,7 +41,7 @@ impl TaskInputOverlay {
             .then(|| (self.text.trim().to_string(), self.section))
     }
 
-    pub fn handle_event(&mut self, event: &Event) {
+    pub fn handle_event(&mut self, event: &Event) -> bool {
         KeyMap::handle(self, event);
         if let Event::Key(KeyEvent {
             code: KeyCode::Char(c),
@@ -50,6 +50,9 @@ impl TaskInputOverlay {
         }) = event
         {
             self.insert_char(*c);
+            true
+        } else {
+            false
         }
     }
 

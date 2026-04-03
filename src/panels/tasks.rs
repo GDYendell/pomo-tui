@@ -78,14 +78,20 @@ impl TasksPanel {
     }
 
     /// Route the event to the active overlay if one is open, otherwise dispatch keybindings
-    pub fn handle_event(&mut self, event: &Event) {
-        if let Some(ref mut overlay) = self.task_input_overlay {
-            overlay.handle_event(event);
+    pub fn handle_event(&mut self, event: &Event) -> bool {
+        let consumed = if let Some(ref mut overlay) = self.task_input_overlay {
+            overlay.handle_event(event)
         } else if let Some(ref mut overlay) = self.sync_overlay {
-            overlay.handle(event);
+            overlay.handle(event)
         } else {
-            self.handle(event);
+            self.handle(event)
+        };
+
+        if consumed {
+            self.process_overlay();
         }
+
+        consumed
     }
 
     pub fn task_input_overlay(&self) -> Option<&TaskInputOverlay> {

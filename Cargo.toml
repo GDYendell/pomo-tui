@@ -11,6 +11,10 @@ crossterm = "0.29"
 rodio = "0.19"
 ratatui-input-manager = { version = "0.3.0", features = ["crossterm"] }
 
+[patch.crates-io]
+ratatui-input-manager = { path = "../ratatui-input-manager" }
+ratatui-input-manager-derive = { path = "../ratatui-input-manager/derive" }
+
 [dev-dependencies]
 tempfile = "3.14"
 

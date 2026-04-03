@@ -114,14 +114,19 @@ impl App {
             return;
         }
 
-        if self.focused_panel == PanelId::Tasks {
-            self.tasks_panel.handle_event(event);
+        let consumed = if self.focused_panel == PanelId::Tasks {
+            let consumed = self.tasks_panel.handle_event(event);
             if let Some(error) = self.tasks_panel.take_error() {
                 self.error_message = Some(error);
             }
-        }
+            consumed
+        } else {
+            false
+        };
 
-        self.handle(event);
+        if !consumed {
+            self.handle(event);
+        }
     }
 }
 
