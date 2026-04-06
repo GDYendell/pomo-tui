@@ -1,57 +1,45 @@
 use ratatui::{
     style::{Color, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Padding},
     Frame,
 };
+use ratatui_input_manager::{widgets::Help, CrosstermBackend, KeyBind};
 
-use super::util::{centered_rect, shortcut_line};
-use crate::util::Shortcut;
+use super::util::centered_rect;
 
-pub fn render_help_overlay(frame: &mut Frame, panel_name: &str, shortcuts: &[Shortcut]) {
-    let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::from(""));
+pub fn render_help_overlay(frame: &mut Frame, keybinds: &[KeyBind<CrosstermBackend>]) {
+    let key_col_width = keybinds
+        .iter()
+        .map(|kb| {
+            let lens: Vec<usize> = kb.pressed.iter().map(|p| p.to_string().len()).collect();
+            lens.iter().sum::<usize>() + lens.len().saturating_sub(1) * 2
+        })
+        .max()
+        .unwrap_or(0)
+        .max(3) as u16;
 
-    lines.push(Line::from(Span::styled(
-        format!("  {panel_name} Panel"),
-        Style::default().fg(Color::White),
-    )));
+    let desc_col_width = keybinds
+        .iter()
+        .map(|kb| kb.description.len())
+        .max()
+        .unwrap_or(0) as u16;
 
-    for shortcut in shortcuts {
-        lines.push(shortcut_line(shortcut.key, shortcut.description));
-    }
-
-    lines.push(Line::from(""));
-
-    lines.push(Line::from(Span::styled(
-        "  Global",
-        Style::default().fg(Color::White),
-    )));
-    let global_shortcuts = [
-        ("t", "Switch Panel Focus"),
-        ("T", "Toggle Tasks Panel"),
-        ("s", "Sync with File"),
-        ("?", "Toggle Help"),
-        ("Q", "Quit"),
-    ];
-    for (key, desc) in global_shortcuts {
-        lines.push(shortcut_line(key, desc));
-    }
-
-    lines.push(Line::from(""));
-
-    let content_height = lines.len() as u16 + 2;
-    let overlay_width = 30u16;
-    let overlay_height = content_height.min(frame.area().height.saturating_sub(4));
+    // 2 borders + 2 horizontal padding + key column + 1 default table column spacing + description column
+    let overlay_width =
+        (4 + key_col_width + 1 + desc_col_width).min(frame.area().width.saturating_sub(4));
+    let overlay_height = (keybinds.len() as u16 + 2).min(frame.area().height.saturating_sub(4));
 
     let overlay_area = centered_rect(frame.area(), overlay_width, overlay_height);
     frame.render_widget(Clear, overlay_area);
 
-    let block = Block::default()
-        .title(" Help ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
-
-    let paragraph = Paragraph::new(lines).block(block);
-    frame.render_widget(paragraph, overlay_area);
+    let help = Help::new(keybinds)
+        .block(
+            Block::default()
+                .title(" Help ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .padding(Padding::horizontal(1)),
+        )
+        .key_style(Style::default().fg(Color::Yellow));
+    frame.render_widget(help, overlay_area);
 }

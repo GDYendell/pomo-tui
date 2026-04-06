@@ -15,13 +15,6 @@ pub fn panel_block(title: &str, focused: bool) -> Block<'_> {
         .title(title)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyHandleResult {
-    Consumed,
-    Ignored,
-    AddTask,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PanelId {
     Timer,

@@ -1,15 +1,12 @@
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use ratatui_input_manager::{keymap, KeyMap};
 
 use crate::melodies::{TWO_TONE, VICTORY_FANFARE};
 use crate::notifications::{send_notification, AudioPlayer};
-use crate::overlays::{SyncAction, SyncOverlay, TaskInputAction, TaskInputOverlay};
-use crate::panels::{KeyHandleResult, PanelId, TasksPanel, TimerPanel, TIMER_MIN_WIDTH};
-use crate::task::TaskSection;
-use crate::task_manager::TaskManager;
+use crate::panels::{PanelId, TasksPanel, TimerPanel, TIMER_MIN_WIDTH};
 use crate::timer::{SessionType, Timer};
-use crate::util::Shortcut;
 
 /// Main application state coordinating timer, tasks, panels, and overlays
 pub struct App {
@@ -18,9 +15,6 @@ pub struct App {
     pub focused_panel: PanelId,
     pub timer_panel: TimerPanel,
     pub tasks_panel: TasksPanel,
-    pub task_manager: TaskManager,
-    pub task_input_overlay: Option<TaskInputOverlay>,
-    pub sync_overlay: Option<SyncOverlay>,
     /// Error message displayed in overlay, if Some
     pub error_message: Option<String>,
     /// Whether the shortcuts
@@ -35,34 +29,18 @@ pub struct App {
 
 impl App {
     pub fn new(task_file: Option<PathBuf>) -> Self {
-        let (task_manager, error_message) = task_file.map_or_else(
-            || (TaskManager::new(), None),
-            |path| {
-                TaskManager::load(path).map_or_else(
-                    |e| {
-                        (
-                            TaskManager::new(),
-                            Some(format!("Failed to load tasks: {e}")),
-                        )
-                    },
-                    |tm| (tm, None),
-                )
-            },
-        );
+        let (tasks_panel, error_message) = TasksPanel::from_file(task_file);
 
         Self {
             should_quit: false,
             timer: Timer::default(),
             timer_panel: TimerPanel::default(),
-            tasks_panel: TasksPanel::default(),
-            task_manager,
+            tasks_panel,
             focused_panel: PanelId::Timer,
             tasks_visible: true,
             shortcuts_visible: false,
             two_columns: false,
             error_message,
-            sync_overlay: None,
-            task_input_overlay: None,
             audio: AudioPlayer::new(),
         }
     }
@@ -92,33 +70,6 @@ impl App {
         self.timer_panel.next_animation_frame();
     }
 
-    pub fn focused_shortcuts(&self) -> Vec<Shortcut> {
-        match self.focused_panel {
-            PanelId::Timer => self
-                .timer_panel
-                .shortcuts(&self.timer, self.task_manager.active_task().is_some()),
-            PanelId::Tasks => self.tasks_panel.shortcuts(),
-        }
-    }
-
-    fn sync_tasks(&mut self) {
-        if !self.task_manager.has_file_path() {
-            if let Err(e) = self.task_manager.create_default_file() {
-                self.error_message = Some(format!("Failed to create default task file: {e}"));
-                return;
-            }
-        }
-        match self.task_manager.compute_sync_items() {
-            Ok(items) => {
-                self.sync_overlay = Some(SyncOverlay::new(items));
-                self.error_message = None;
-            }
-            Err(e) => {
-                self.error_message = Some(format!("Sync failed: {e}"));
-            }
-        }
-    }
-
     fn toggle_tasks_visibility(&mut self) {
         self.tasks_visible = !self.tasks_visible;
 
@@ -136,101 +87,152 @@ impl App {
         self.two_columns = self.tasks_visible && (width / 2) >= TIMER_MIN_WIDTH;
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) {
-        // Intercept if error overlay is active
+    /// Handle a terminal event
+    pub fn handle(&mut self, event: &Event) {
         if self.error_message.is_some() {
-            self.error_message = None;
-            return;
-        }
-
-        // Intercept if task input overlay is active
-        if let Some(ref mut overlay) = self.task_input_overlay {
-            match overlay.handle_key(key) {
-                TaskInputAction::Consumed => {}
-                TaskInputAction::Dismiss => {
-                    self.task_input_overlay = None;
-                }
-                TaskInputAction::Submit { text, section } => {
-                    self.task_manager.add_task(text, section);
-                    self.task_input_overlay = None;
-                }
+            if matches!(
+                event,
+                Event::Key(KeyEvent {
+                    kind: KeyEventKind::Press,
+                    ..
+                })
+            ) {
+                self.error_message = None;
             }
             return;
         }
 
-        // Intercept if sync overlay is active
-        if let Some(ref mut overlay) = self.sync_overlay {
-            match overlay.handle_key(key) {
-                SyncAction::Consumed => {}
-                SyncAction::Dismiss => {
-                    self.sync_overlay = None;
-                }
-                SyncAction::Apply(items) => {
-                    if let Err(e) = self.task_manager.apply_sync(&items) {
-                        self.error_message = Some(format!("Sync failed: {e}"));
-                    }
-                    self.tasks_panel.clamp_focus(&self.task_manager);
-                    self.sync_overlay = None;
-                }
-            }
-            return;
-        }
-
-        // Intercept if help overlay is active
         if self.shortcuts_visible {
-            match key.code {
-                KeyCode::Char('?') | KeyCode::Esc => self.shortcuts_visible = false,
-                _ => {}
+            if let Event::Key(KeyEvent {
+                code: KeyCode::Char('?') | KeyCode::Esc,
+                kind: KeyEventKind::Press,
+                ..
+            }) = event
+            {
+                self.shortcuts_visible = false;
             }
             return;
         }
 
-        // Global shortcuts first
-        match key.code {
-            KeyCode::Char('q' | 'Q') | KeyCode::Esc => {
-                self.should_quit = true;
-                return;
-            }
-            KeyCode::Char('T') => {
-                self.toggle_tasks_visibility();
-                return;
-            }
-            KeyCode::Char('t') if self.tasks_visible => {
-                self.focused_panel = match self.focused_panel {
-                    PanelId::Timer => PanelId::Tasks,
-                    PanelId::Tasks => PanelId::Timer,
-                };
-                return;
-            }
-            KeyCode::Char('?') => {
-                self.shortcuts_visible = !self.shortcuts_visible;
-                return;
-            }
-            _ => {}
-        }
+        let consumed = if self.focused_panel == PanelId::Tasks {
+            let consumed = self.tasks_panel.handle(event);
 
-        if self.focused_panel == PanelId::Tasks {
-            if let KeyCode::Char('s' | 'S') = key.code {
-                self.sync_tasks();
-                return;
+            if let Some(error) = self.tasks_panel.take_error() {
+                self.error_message = Some(error);
             }
-        }
 
-        match self.focused_panel {
-            PanelId::Timer => {
-                self.timer_panel
-                    .handle_key(key, &mut self.timer, &mut self.task_manager);
-            }
-            PanelId::Tasks => {
-                if self.tasks_panel.handle_key(key, &mut self.task_manager)
-                    == KeyHandleResult::AddTask
-                {
-                    let section = self.tasks_panel.focused_section();
-                    if section != TaskSection::Completed {
-                        self.task_input_overlay = Some(TaskInputOverlay::new(section));
-                    }
-                }
-            }
+            consumed
+        } else {
+            false
+        };
+
+        if !consumed {
+            KeyMap::handle(self, event);
+        }
+    }
+}
+
+#[keymap(backend = "crossterm")]
+impl App {
+    /// Quit
+    #[keybind(pressed(key=KeyCode::Char('q')))]
+    #[keybind(pressed(key=KeyCode::Char('Q')))]
+    #[keybind(pressed(key=KeyCode::Esc))]
+    fn quit(&mut self) {
+        self.should_quit = true;
+    }
+
+    /// Toggle tasks panel visibility
+    #[keybind(pressed(key=KeyCode::Char('T')))]
+    fn toggle_tasks(&mut self) {
+        self.toggle_tasks_visibility();
+    }
+
+    /// Switch panel focus
+    #[keybind(pressed(key=KeyCode::Char('t')))]
+    fn switch_focus(&mut self) {
+        if self.tasks_visible {
+            self.focused_panel = match self.focused_panel {
+                PanelId::Timer => PanelId::Tasks,
+                PanelId::Tasks => PanelId::Timer,
+            };
+        }
+    }
+
+    /// Toggle help overlay
+    #[keybind(pressed(key=KeyCode::Char('?')))]
+    fn toggle_help(&mut self) {
+        self.shortcuts_visible = !self.shortcuts_visible;
+    }
+
+    /// Start or pause timer
+    #[keybind(pressed(key=KeyCode::Char(' ')))]
+    fn toggle_timer(&mut self) {
+        if self.focused_panel == PanelId::Timer {
+            self.timer.toggle();
+        }
+    }
+
+    /// Reset timer
+    #[keybind(pressed(key=KeyCode::Char('r')))]
+    #[keybind(pressed(key=KeyCode::Char('R')))]
+    fn reset_timer(&mut self) {
+        if self.focused_panel == PanelId::Timer {
+            self.timer.reset();
+        }
+    }
+
+    /// Set work session mode
+    #[keybind(pressed(key=KeyCode::Char('w')))]
+    #[keybind(pressed(key=KeyCode::Char('W')))]
+    fn set_work_mode(&mut self) {
+        if self.focused_panel == PanelId::Timer && self.timer.is_idle() {
+            self.timer.set_session_type(SessionType::Work);
+        }
+    }
+
+    /// Set long break session mode
+    #[keybind(pressed(key=KeyCode::Char('b')))]
+    #[keybind(pressed(key=KeyCode::Char('B')))]
+    fn set_break_mode(&mut self) {
+        if self.focused_panel == PanelId::Timer && self.timer.is_idle() {
+            self.timer.set_session_type(SessionType::LongBreak);
+        }
+    }
+
+    /// Complete current task
+    #[keybind(pressed(key=KeyCode::Char('x')))]
+    #[keybind(pressed(key=KeyCode::Char('X')))]
+    fn handle_complete(&mut self) {
+        if self.focused_panel == PanelId::Timer {
+            self.tasks_panel.complete_current_task();
+        }
+    }
+
+    /// Cycle session type
+    #[keybind(pressed(key=KeyCode::Tab))]
+    #[keybind(pressed(key=KeyCode::BackTab))]
+    fn cycle_session(&mut self) {
+        if self.focused_panel == PanelId::Timer && self.timer.is_idle() {
+            self.timer.cycle_session_type();
+        }
+    }
+
+    /// Add one minute to timer
+    #[keybind(pressed(key=KeyCode::Char('+')))]
+    #[keybind(pressed(key=KeyCode::Char('=')))]
+    fn add_minute(&mut self) {
+        if self.focused_panel == PanelId::Timer && self.timer.is_idle() {
+            self.timer.add_minute();
+        }
+    }
+
+    /// Subtract one minute from timer
+    #[keybind(pressed(key=KeyCode::Char('-')))]
+    #[keybind(pressed(key=KeyCode::Char('_')))]
+    fn subtract_minute(&mut self) {
+        if self.focused_panel == PanelId::Timer && self.timer.is_idle() {
+            self.timer.subtract_minute();
         }
     }
 }

@@ -8,15 +8,13 @@ mod task;
 mod task_manager;
 mod timer;
 mod ui;
-mod util;
 
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use crossterm::{
-    event::{self, Event, KeyEventKind},
-    execute,
+    event, execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle,
     },
@@ -61,11 +59,7 @@ fn run(
         terminal.draw(|frame| ui::render(frame, &mut app))?;
 
         if event::poll(tick_rate)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.handle_key(key);
-                }
-            }
+            app.handle(&event::read()?);
         }
 
         app.tick();

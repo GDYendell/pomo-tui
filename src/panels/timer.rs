@@ -6,13 +6,9 @@ use ratatui::{
     Frame,
 };
 
-use crossterm::event::{KeyCode, KeyEvent};
-
-use super::util::{panel_block, KeyHandleResult};
+use super::util::panel_block;
 use crate::task::Task;
-use crate::task_manager::TaskManager;
 use crate::timer::{SessionType, Timer};
-use crate::util::Shortcut;
 
 /// Timer panel displaying countdown, session type, and current task
 #[derive(Default)]
@@ -91,82 +87,6 @@ impl TimerPanel {
             .split(inner);
             self.render_timer_display(frame, chunks[0], timer);
             Self::render_current_task(frame, chunks[1], active_task);
-        }
-    }
-
-    pub fn shortcuts(&self, timer: &Timer, has_active_task: bool) -> Vec<Shortcut> {
-        let mut shortcuts = vec![
-            Shortcut {
-                key: "Space",
-                description: "Start/Pause",
-            },
-            Shortcut {
-                key: "R",
-                description: "Reset",
-            },
-        ];
-
-        if timer.is_idle() {
-            shortcuts.push(Shortcut {
-                key: "Tab",
-                description: "Mode",
-            });
-            shortcuts.push(Shortcut {
-                key: "+/-",
-                description: "Adjust Time",
-            });
-        }
-
-        if has_active_task {
-            shortcuts.push(Shortcut {
-                key: "X",
-                description: "Complete",
-            });
-        }
-
-        shortcuts
-    }
-
-    pub fn handle_key(
-        &self,
-        key: KeyEvent,
-        timer: &mut Timer,
-        task_manager: &mut TaskManager,
-    ) -> KeyHandleResult {
-        match key.code {
-            KeyCode::Char(' ') => {
-                timer.toggle();
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('r' | 'R') => {
-                timer.reset();
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('w' | 'W') if timer.is_idle() => {
-                timer.set_session_type(SessionType::Work);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('b' | 'B') if timer.is_idle() => {
-                timer.set_session_type(SessionType::LongBreak);
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('x' | 'X') => {
-                task_manager.complete_current_task();
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Tab | KeyCode::BackTab if timer.is_idle() => {
-                timer.cycle_session_type();
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('+' | '=') if timer.is_idle() => {
-                timer.add_minute();
-                KeyHandleResult::Consumed
-            }
-            KeyCode::Char('-' | '_') if timer.is_idle() => {
-                timer.subtract_minute();
-                KeyHandleResult::Consumed
-            }
-            _ => KeyHandleResult::Ignored,
         }
     }
 
